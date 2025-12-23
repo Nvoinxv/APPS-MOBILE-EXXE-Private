@@ -1,0 +1,7 @@
+# Ignore model dan data besar
+*.pth
+crypto-hft-data/
+
+# Ignore file backup/temporary
+*.bak
+*.log

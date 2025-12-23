@@ -1,0 +1,49 @@
+FROM python:3.12-slim-bookworm
+
+# ═══════════════════════════════════════════════════════
+# 🔥 CRITICAL FIX: Set timezone to UTC
+# ═══════════════════════════════════════════════════════
+ENV TZ=UTC
+ENV PYTHONUNBUFFERED=1
+
+# Set timezone files
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+WORKDIR /app
+
+COPY requirements.txt .
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    gnupg \
+    git \
+    build-essential \
+    gcc \
+    libffi-dev \
+    libssl-dev \
+    python3-dev \
+    tzdata \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --upgrade pip \
+    --trusted-host pypi.org \
+    --trusted-host pypi.python.org \
+    --trusted-host files.pythonhosted.org
+
+RUN pip install --no-cache-dir -r requirements.txt \
+    --trusted-host pypi.org \
+    --trusted-host pypi.python.org \
+    --trusted-host files.pythonhosted.org
+
+RUN mkdir -p /app/Data/asset
+COPY Data/asset/*.ttf /app/Data/asset/
+RUN ls -lh /app/Data/asset/*.ttf && echo "✅ Fonts copied"
+
+COPY . .
+
+RUN echo "Timezone: $(date +%Z)" && date
+
+CMD ["python", "-m", "main"]
