@@ -4,17 +4,12 @@ from fastapi import APIRouter
 
 router_ai = APIRouter()
 
-class AIController:
-    def __init__(self):
-        self.ai_generate_text_news = AIGenerateTextNews()
-        self.ai_analisis_sentiment = AnalisisSentiment()
-    
-    @router_ai.post("/generate-text-news")
-    def generate_text_news(self, text):
-        return self.ai_generate_text_news._generate_content()
+@router_ai.post("/generate-text-news")
+def generate_text_news(text: str):
+    ai_generate_text_news = AIGenerateTextNews()
+    return ai_generate_text_news._generate_content()
 
-    @router_ai.post("/analisis-sentiment")
-    def analisis_sentiment(self, text):
-        return self.ai_analisis_sentiment.analisis_sentiment()
-
-    
+@router_ai.post("/analisis-sentiment")
+def analisis_sentiment(text: str):
+    ai_analisis_sentiment = AnalisisSentiment()
+    return ai_analisis_sentiment.analisis_sentiment()
