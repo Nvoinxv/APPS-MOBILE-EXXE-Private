@@ -1,0 +1,16 @@
+fastapi === 0.115.13
+pymongo == 4.13.2
+psycopg2 == 2.9.7
+google-generativeai == 0.8.5
+scikit-learn == 1.5.2
+numpy == 2.0.2
+flask==3.1.2
+pandas==2.2.2
+numpy==2.0.2
+python-dotenv==1.0.1
+schedule==1.2.2
+pdfplumber==0.11.6
+tenacity==9.0.0
+feedparser==6.0.12
+joblib==1.4.2
+blapi==3.25.11.1
