@@ -1,0 +1,1 @@
+# Ambil data dari timeframe berbeda

@@ -1,0 +1,47 @@
+EXXE News — Daily Report
+Generated : 2026-03-21 14:01:31
+Total     : 3 artikel
+======================================================================
+
+[1] Perusahaan Langgar Kontrak? Bisa Resign Tanpa Notice, Emang Boleh?
+──────────────────────────────────────────────────────────────────────
+📋 Kontrak kerja di-breach perusahaan? Wajib tahu hakmu buat resign tanpa notice, konsekuensi hukumnya, plus cara buktiin tanggal mulai kerjamu biar aman!
+
+Duh, siapa sih yang nggak sebel kalau kontrak kerja yang
+
+Sumber    : gulfnews
+Tanggal   : 2026-03-21 02:00:00
+Link      : https://gulfnews.com/ask-gulf-news/ask-gulf-news-can-you-resign-without-notice-if-your-employer-breaches-your-contract-1.500481532
+Sentiment : NETRAL  (conf=0.95  score=0.00)
+Owner     : EXXE News
+
+======================================================================
+
+[2] Trump Si 'King of Chaos'? Ekonomi Kacau, Sekutu Ngambek. Yuk, Gabung 'No Kings Rally'!
+──────────────────────────────────────────────────────────────────────
+📋 Ekonomi hancur, sekutu di-ghosting, perang di depan mata? Trump disebut 'King of Chaos'. Yuk, cari tahu kenapa 'No Kings Rally' penting!
+
+Guys, pernah nggak sih kalian n
+
+Sumber    : aspendailynews
+Tanggal   : 2026-03-21 02:00:00
+Link      : https://www.aspendailynews.com/opinion/protest-the-mayhem-join-no-kings-rally/article_9cd6c147-6be4-4cd0-90a7-17beb7fd7e08.html
+Sentiment : PESIMIS  (conf=0.95  score=-1.00)
+Owner     : EXXE News
+
+======================================================================
+
+[3] Jalur Aman Sekolah: Charity Ajak Council Ngobrolin Towpath, Ada Apa Nih?
+──────────────────────────────────────────────────────────────────────
+📋 Charity pengen banget ngobrol sama Council Shropshire soal towpath yang jadi jalur aman sekolah. Kira-kira, apa yang mau dibahas ya?
+
+Gaes, ada kabar penting nih yang wajib banget kalian tahu, terutama buat yang *concern*
+
+Sumber    : shropshirestar
+Tanggal   : 2026-03-21 02:00:00
+Link      : https://www.shropshirestar.com/news/education/2026/03/21/canal-charity-would-love-to-talk-with-shropshire-council-over-towpath-at-centre-of-safe-school-route-controversy
+Sentiment : NETRAL  (conf=0.65  score=0.00)
+Owner     : EXXE News
+
+======================================================================
+

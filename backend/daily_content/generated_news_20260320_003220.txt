@@ -1,0 +1,63 @@
+EXXE News — Daily Report
+Generated: 2026-03-20 00:32:20
+Total Artikel: 4
+======================================================================
+
+[1] Data Kalian Aman? Oklahoma Lagi Bikin Aturan Baru nih!
+──────────────────────────────────────────────────────────────────────
+📋 Oklahoma selangkah lagi punya UU privasi data komprehensif! Kalau disahkan, data pribadi kamu di sana bakal lebih aman dari incaran bisnis besar. Spill infonya!
+
+Wagelaseh, guys! Ada kabar gembira nih dari Oklahoma. Mereka
+
+Sumber    : biometricupdate
+Tanggal   : 2026-03-19 12:30:40
+Link      : https://www.biometricupdate.com/202603/oklahoma-privacy-bill-heads-to-governors-desk-for-signature
+Sentiment : NETRAL  (conf=0.95)
+Owner     : EXXE News
+
+======================================================================
+
+[2] Premium Kok Ada Iklan? Spotify Akhirnya Fix Bug Ngaco Ini!
+──────────────────────────────────────────────────────────────────────
+📋 Spotify Premium kamu kemarin ada iklannya? Jangan panik! Glitch ngeselin ini udah diatasi, nikmati lagi musik tanpa jeda. Lega!
+
+Oke, bestie, siapa nih yang kemarin sempat panik gara-gara denger iklan di Spotify Premium-nya? Jujur aja, itu vibes-nya kayak lagi bayar makan di restoran bintang lima, tapi kok disuruh cuci piring sendiri, kan? Nah, drama ngeselin ini akhirnya nemu titik terang! Spotify, platform streaming musik kesayangan kita semua, baru aja ngasih kabar gembira kalau mereka udah berhasil nge-fix glitch yang bikin banyak banget pengguna Premium di seluruh dunia kebingungan. Bayangin, udah bayar langganan bulanan biar playlist anti-jeda, eh malah tiba-tiba disuguhin iklan minuman atau diskon belanja. Rasanya tuh kayak di-prank, tapi ini prank-nya kok bikin dompet tipis?
+
+Bukan cuma iklan yang bikin kuping panas, beberapa user bahkan ngalamin downgrade akun secara tiba-tiba. Jadi, status Premium-nya ilang, terus balik lagi ke versi gratisan. Kebayang nggak sih, lagi asyik-asyiknya dengerin lagu favorit buat chill atau nemenin kerja, eh mendadak kualitas suara jadi standar dan nggak bisa skip lagu sesuka hati? Ini bener-bener bikin mood anjlok parah, apalagi buat kita yang hidupnya udah nggak bisa jauh dari musik. Para pengguna yang kena dampak ini pastinya langsung heboh di media sosial, curhat sana-sini, dan nanyain kejelasan dari pihak Spotify. Wajar banget sih kalau mereka ngerasa kecewa, karena kan ekspektasinya udah tinggi
+
+Sumber    : thehansindia
+Tanggal   : 2026-03-19 12:30:54
+Link      : https://www.thehansindia.com/tech/spotify-fixes-premium-glitch-that-played-ads-for-paid-users-1057963
+Sentiment : NETRAL  (conf=0.50)
+Owner     : EXXE News
+
+======================================================================
+
+[3] Deadline Tim Lari Sekolah: Kepala Sekolah Kena Backlash 'Gak Inklusif'?
+──────────────────────────────────────────────────────────────────────
+📋 Kepala sekolah kena backlash karena memberlakukan deadline ketat untuk tim lari sekolah. Dituduh tidak inklusif, ada apa sebenarnya di balik kebijakan ini?
+
+Gaes, kali ini ada drama di sekolah yang lagi
+
+Sumber    : newsweek
+Tanggal   : 2026-03-19 12:30:55
+Link      : https://www.newsweek.com/principal-recruits-for-track-team-not-ready-for-non-inclusive-accusation-11697925
+Sentiment : NETRAL  (conf=0.65)
+Owner     : EXXE News
+
+======================================================================
+
+[4] Anti Dingin! Tanaman Ini Punya 'Heater' Sendiri, Tapi Baunya Busuk Parah!
+──────────────────────────────────────────────────────────────────────
+📋 Gila! Tanaman rawa ini bisa tetep hangat di suhu beku berkat 'heater' alaminya. Tapi, baunya busuk parah! Gimana bisa, ya?
+
+Oke
+
+Sumber    : forbes
+Tanggal   : 2026-03-19 12:30:49
+Link      : https://www.forbes.com/sites/scotttravers/2026/03/19/meet-the-plant-that-heats-itself-in-winter-hint-it-smells-like-rotting-meat/
+Sentiment : NETRAL  (conf=0.50)
+Owner     : EXXE News
+
+======================================================================
+

@@ -1,0 +1,47 @@
+EXXE News — Daily Report
+Generated : 2026-03-21 13:42:01
+Total     : 3 artikel
+======================================================================
+
+[1] Sen. John Kennedy: Konflik Iran Bikin Ekonomi AS Ketar-ketir?
+──────────────────────────────────────────────────────────────────────
+📋 Senator John Kennedy gelisah soal dampak ekonomi konflik Iran. Padahal petinggi ekonomi AS bilang santai aja, nggak perlu khawatir soal itu. Kok beda?
+
+Hai guys, yuk ngomongin situasi yang lagi panas banget di kancah global
+
+Sumber    : cbnc
+Tanggal   : 2026-03-21 01:41:00
+Link      : https://cbnc.com/sen-john-kennedy-has-two-major-worries-as-iran-conflict-continues/
+Sentiment : NEGATIF  (conf=0.85  score=-0.50)
+Owner     : EXXE News
+
+======================================================================
+
+[2] Ghana Cards: Warga Zongo Susah Punya, Dikira 'Alien'?
+──────────────────────────────────────────────────────────────────────
+📋 Anggota parlemen Ghana prihatin: warga Zongo ditolak punya identitas resmi cuma gara-gara nama atau etnis. Mereka sampai merasa 'alien' di negara sendiri. Ada apa ini?
+
+Gila sih, di era serba digital dan
+
+Sumber    : myjoyonline
+Tanggal   : 2026-03-21 01:41:00
+Link      : https://www.myjoyonline.com/zongo-communities-face-alien-labelling-in-battle-for-ghana-cards/
+Sentiment : NEGATIF  (conf=0.85  score=-0.50)
+Owner     : EXXE News
+
+======================================================================
+
+[3] India: Bukan Cuma GPU, Tapi Raja Data AI Sesungguhnya!
+──────────────────────────────────────────────────────────────────────
+📋 India punya keunggulan AI bukan dari GPU, tapi data real-world bejibun! Ini yang bikin mereka jadi raja data dunia. Penasaran kenapa?
+
+Oke, guys, ngomongin soal masa depan AI, pasti pikiran kita langsung melayang
+
+Sumber    : yourstory
+Tanggal   : 2026-03-21 01:40:00
+Link      : https://yourstory.com/2026/03/data-is-king-india-holds-the-crown
+Sentiment : OPTIMIS  (conf=0.95  score=1.00)
+Owner     : EXXE News
+
+======================================================================
+

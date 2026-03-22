@@ -1,0 +1,67 @@
+{
+  "generated_at": "2026-03-20T00:32:32.530394",
+  "total": 4,
+  "owner": "EXXE News",
+  "articles": [
+    {
+      "original_title": "Principal Recruits For Track Team—Not Ready For 'Non-Inclusive' Accusation",
+      "original_link": "https://www.newsweek.com/principal-recruits-for-track-team-not-ready-for-non-inclusive-accusation-11697925",
+      "original_source": "newsweek",
+      "original_domain": "geopolitics",
+      "original_published": "2026-03-19 12:30:55",
+      "generated_title": "POV: Kepala Sekolah Bikin Deadline Tim Lari, Kok Malah Dituduh Gak Inklusif?",
+      "generated_summary": "Drama sekolah! Kepala sekolah kena backlash usai terapkan deadline ketat buat tim lari. Dituding non-inklusif, warganet heboh!",
+      "generated_body": "Dunia sekolah emang nggak pernah sepi",
+      "sentiment": "netral",
+      "confidence": 0.65,
+      "score": 0.0,
+      "generated_at": "2026-03-20 00:31:34",
+      "owner": "EXXE News"
+    },
+    {
+      "original_title": "Belarusian FM: Western countries’ policy resembles self-isolation",
+      "original_link": "https://eng.belta.by/politics/view/belarusian-fm-western-countries-policy-resembles-self-isolation-178115-2026/",
+      "original_source": "belta",
+      "original_domain": "geopolitics",
+      "original_published": "2026-03-19 12:31:00",
+      "generated_title": "POV Menlu Belarus: Negara Barat Lagi 'Self-Isolation'?",
+      "generated_summary": "Menlu Belarus, Maxim Ryzhenkov, curiga negara Barat lagi 'self-isolation'. Pernyataan ini dilontarkan saat kunjungan ke perbatasan Belarus-Polandia. Ada apa ya?",
+      "generated_body": "Guys, ada kabar nih dari dunia diplomasi yang bikin",
+      "sentiment": "negatif",
+      "confidence": 0.85,
+      "score": -0.5,
+      "generated_at": "2026-03-20 00:31:57",
+      "owner": "EXXE News"
+    },
+    {
+      "original_title": "Put the power of AI directly in your browser with BrowserCoPilot",
+      "original_link": "https://www.techrepublic.com/article/browsercopilot-ai-lifetime-subscription/",
+      "original_source": "techrepublic",
+      "original_domain": "technology",
+      "original_published": "2026-03-19 12:30:34",
+      "generated_title": "BrowserCoPilot: AI di Browser, Bikin Kerja Kamu Auto Sat Set!",
+      "generated_summary": "Bikin kerjaan auto sat set? BrowserCoPilot hadirkan AI di browser kamu! Dari nulis email sampai kelola PDF, semua jadi lebih gampang & hemat ratusan ribu!",
+      "generated_body": "Di era serba digital ini, siapa sih yang nggak ken",
+      "sentiment": "optimis",
+      "confidence": 0.95,
+      "score": 1.0,
+      "generated_at": "2026-03-20 00:32:14",
+      "owner": "EXXE News"
+    },
+    {
+      "original_title": "Personal contact between Lukashenko, Trump possible in near future",
+      "original_link": "https://eng.belta.by/politics/view/personal-contact-between-lukashenko-trump-possible-in-near-future-178116-2026/",
+      "original_source": "belta",
+      "original_domain": "geopolitics",
+      "original_published": "2026-03-19 12:31:00",
+      "generated_title": "Lukashenko & Trump: Bakal Ada Kontak Langsung Sebentar Lagi?",
+      "generated_summary": "Lukashenko dan Trump mungkin bakal ngobrol langsung! Perwakilan AS ditanya soal potensi pertemuan atau telepon penting. Kira-kira bakal kejadian gak ya?",
+      "generated_body": "Guys, ada kabar super bikin kepo nih dari dunia politik internasional! Siapa sangka",
+      "sentiment": "netral",
+      "confidence": 0.85,
+      "score": 0.0,
+      "generated_at": "2026-03-20 00:32:32",
+      "owner": "EXXE News"
+    }
+  ]
+}

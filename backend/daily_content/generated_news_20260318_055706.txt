@@ -1,0 +1,53 @@
+EXXE News — Daily Report
+Generated: 2026-03-18 05:57:06
+Total Artikel: 4
+======================================================================
+
+[1] Trump Update: Iran Belum Kelar, NATO Kena Sentil, China Nanti Dulu Deh!
+──────────────────────────────────────────────────────────────────────
+Oke gaes, ada *update* nih dari dunia perpolitikan
+
+Sumber    : indianexpress
+Tanggal   : 2026-03-17 17:55:59
+Link      : https://indianexpress.com/article/world/us-news/donald-trump-iran-war-update-nato-china-trip-postponed-joe-kent-resignation-10587439/
+Sentiment : NETRAL  (conf=0.85)
+Owner     : EXXE News
+
+======================================================================
+
+[2] CM Haryana: Budget Baru Bakal Gaspol Pembangunan Daerah!
+──────────────────────────────────────────────────────────────────────
+Halo, Gen Zers dan warga Haryana! Ada kabar gokil nih dari Chief Minister Nayab Singh Saini. Jadi
+
+Sumber    : latestly
+Tanggal   : 2026-03-17 17:54:26
+Link      : https://www.latestly.com/agency-news/india-news-haryana-budget-will-rapidly-accelerate-states-development-chief-minister-7358048.html
+Sentiment : OPTIMIS  (conf=0.95)
+Owner     : EXXE News
+
+======================================================================
+
+[3] Google AI Minta Data Kamu Biar Makin Pinter? Ini yang Perlu Kamu Tahu!
+──────────────────────────────────────────────────────────────────────
+Hai, guys! Ada kabar seru tapi juga bikin mikir dari Google nih.
+
+Sumber    : pcworld_us
+Tanggal   : 2026-03-17 17:54:30
+Link      : https://www.pcworld.com/article/3091474/google-intelligence-is-now-asking-everyone-for-all-of-your-data.html
+Sentiment : NETRAL  (conf=0.65)
+Owner     : EXXE News
+
+======================================================================
+
+[4] Bernstein Spill List Saham Chip Testing Paling Worth It Buat Kamu Pantau!
+──────────────────────────────────────────────────────────────────────
+Hai Gen Z EXXE News! Kalian yang lagi kepo sama dunia investasi atau lagi nyari-
+
+Sumber    : investing_ng
+Tanggal   : 2026-03-17 17:54:10
+Link      : https://ng.investing.com/news/stock-market-news/top-chip-testing-stocks-to-watch-according-to-bernstein-93CH-2397215
+Sentiment : NETRAL  (conf=0.95)
+Owner     : EXXE News
+
+======================================================================
+

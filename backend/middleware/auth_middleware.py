@@ -1,54 +1,73 @@
 from fastapi import Request
-from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
-from model.user_model import UserModel
-from dotenv import load_dotenv
-import os
+from starlette.responses import JSONResponse
 import jwt
+import os
 
-dotenv_path = os.path.join(os.path.dirname(__file__), ".env")
-load_dotenv(dotenv_path=dotenv_path)
+JWT_SECRET = os.getenv("JWT_SECRET")
+JWT_ALGORITHM = "HS256"
 
 class AuthMiddleware(BaseHTTPMiddleware):
-    """
-    Ini tugas nya untuk memvalidasi token,
-    dan mencegah serangan brute force.
-    dan mengecek apakah user udah login atau belum.
-    """
     async def dispatch(self, request: Request, call_next):
-        # route yang bebas auth
-        public_paths = ["/login", "/register", "/docs", "/openapi.json"]
+
+        public_paths = [
+            "/",
+            "/health",
+            "/docs",
+            "/openapi.json",
+            "/redoc",
+            "/login",
+            "/register",
+            "/verify-otp",
+            "/forgot-password",
+            "/reset-password",
+        ]
+
+        if request.url.path.startswith("/images-"):
+            return await call_next(request)
 
         if request.url.path in public_paths:
             return await call_next(request)
 
-        token = request.headers.get("Authorization")
+        auth_header = request.headers.get("Authorization")
 
-        if not token:
+        if not auth_header:
             return JSONResponse(
                 status_code=401,
-                content={"message": "Unauthorized"}
+                content={"detail": "Missing authorization header"}
             )
-        
-        # proses autentikasi
-        # mengecek token guna mencegah serangan brute force
-        try:
-            payload = jwt.decode(token, os.getenv("SECRET_KEY"), algorithms=["HS256"])
-            user = UserModel(**payload)
-            request.state.user = user
 
-            return await call_next(request)
+        try:
+            scheme, token = auth_header.split()
+
+            if scheme.lower() != "bearer":
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Invalid authentication scheme"}
+                )
+
+            payload = jwt.decode(
+                token,
+                JWT_SECRET,
+                algorithms=[JWT_ALGORITHM]
+            )
+
+            request.state.user = payload
 
         except jwt.ExpiredSignatureError:
             return JSONResponse(
                 status_code=401,
-                content={"message": "Token expired"}
+                content={"detail": "Token expired"}
             )
         except jwt.InvalidTokenError:
             return JSONResponse(
                 status_code=401,
-                content={"message": "Invalid token"}
+                content={"detail": "Invalid token"}
+            )
+        except ValueError:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid authorization header format"}
             )
 
-        response = await call_next(request)
-        return response
+        return await call_next(request)

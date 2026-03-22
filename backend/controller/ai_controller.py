@@ -1,4 +1,4 @@
-from AI.AI_Generate_Text import AIGenerateTextNews
+from backend.AI.AI_Generate_Text_News import AIGenerateTextNews
 from AI.llm_analisis_sentiment import AnalisisSentiment
 from fastapi import APIRouter
 

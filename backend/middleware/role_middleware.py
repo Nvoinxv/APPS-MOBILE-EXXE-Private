@@ -1,3 +1,7 @@
+from fastapi import Request
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
+
 class RoleMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         role = request.headers.get("X-Role")

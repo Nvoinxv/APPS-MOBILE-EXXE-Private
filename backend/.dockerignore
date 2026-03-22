@@ -1,0 +1,57 @@
+# Docker & Git
+.dockerignore
+.git
+.gitignore
+Dockerfile
+docker-compose.yml
+.github
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+
+# Database & Logs
+postgres_data/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+app_debug.log
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test & Documentation
+test_*.py
+*.md
+readme.md
+cara_cek_db_local_sql.txt
+
+# Temporary files
+*.tmp
+*.bak
+*.cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment
+.env.local
+.env.*.local
+
+# Images & Media (jika besar)
+# images_*/
+# AI/

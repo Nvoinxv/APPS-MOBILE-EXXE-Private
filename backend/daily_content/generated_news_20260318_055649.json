@@ -1,0 +1,35 @@
+{
+  "generated_at": "2026-03-18T05:56:49.152800",
+  "total": 2,
+  "owner": "EXXE News",
+  "articles": [
+    {
+      "original_title": "Tuesday is the deadline for candidates to get off the Texas Senate GOP runoff ballot",
+      "original_link": "https://feeds.texastribune.org/link/16799/17301051/texas-senate-gop-primary-runoff-deadline-remove-name-from-ballot-cornyn-paxton",
+      "original_source": "texastribune",
+      "original_domain": "geopolitics",
+      "original_published": "2026-03-17 17:55:39",
+      "generated_title": "Texas Senate GOP Runoff: Deadline Mundur Udah Dekat, Trump Kapan Spill Endorsemennya?",
+      "generated_body": "Halo, guys! Ada info seru nih dari dunia politik Texas",
+      "sentiment": "netral",
+      "confidence": 0.85,
+      "score": 0.0,
+      "generated_at": "2026-03-18 05:56:29",
+      "owner": "EXXE News"
+    },
+    {
+      "original_title": "Iran, NATO and a postponed trip to China: What Trump said on Tehran war timeline in latest remarks",
+      "original_link": "https://indianexpress.com/article/world/us-news/donald-trump-iran-war-update-nato-china-trip-postponed-joe-kent-resignation-10587439/",
+      "original_source": "indianexpress",
+      "original_domain": "geopolitics",
+      "original_published": "2026-03-17 17:55:59",
+      "generated_title": "Trump Ngasih Update: Iran Belum Cabut, NATO Kena Semprot, China Trip Ditunda Dulu!",
+      "generated_body": "Oke guys, Donald Trump lagi-lagi bikin statement yang lumayan",
+      "sentiment": "netral",
+      "confidence": 0.85,
+      "score": 0.0,
+      "generated_at": "2026-03-18 05:56:42",
+      "owner": "EXXE News"
+    }
+  ]
+}

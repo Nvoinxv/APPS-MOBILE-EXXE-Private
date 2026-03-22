@@ -1,0 +1,62 @@
+EXXE News — Daily Report
+Generated: 2026-03-20 00:33:46
+Total Artikel: 4
+======================================================================
+
+[1] Taltson Hydro: Benarkah Bakal Bikin Tambang NWT Melejit & Banjir Investor?
+──────────────────────────────────────────────────────────────────────
+📋 Banyak yang bilang, Taltson hydro bakal jadi kunci buat ngedorong proyek tambang di NWT dan narik investasi korporat. Beneran segitu ngaruhnya?
+
+Eh, guys, udah
+
+Sumber    : thespec
+Tanggal   : 2026-03-19 12:31:34
+Link      : https://www.thespec.com/news/canada/can-the-taltson-hydro-expansion-deliver-on-its-promises/article_36b7b3e1-d3a4-5ec0-beb1-f002c5f374c6.html
+Sentiment : NETRAL  (conf=0.50)
+Owner     : EXXE News
+
+======================================================================
+
+[2] Dalesway Yorkshire Gaspol! Dapat Dana Gede, Pekerjaan Auto Aman & Nambah!
+──────────────────────────────────────────────────────────────────────
+📋 Dalesway Yorkshire, firma off-road, dapat suntikan dana gede! 35 pekerjaan aman & bakal ada lowongan baru. Siap-siap daftar!
+
+Halo guys! Ada kabar gembira nih
+
+Sumber    : businesslive
+Tanggal   : 2026-03-19 12:31:38
+Link      : https://www.business-live.co.uk/enterprise/road-driving-firm-dalesway-yorkshire-33622674
+Sentiment : OPTIMIS  (conf=0.95)
+Owner     : EXXE News
+
+======================================================================
+
+[3] Thanjavur: DMK Masih 'King'? AIADMK & Vijay Siap Rebutan Tahta 2026!
+──────────────────────────────────────────────────────────────────────
+📋 DMK kuasai Thanjavur 2021. Mampukah AIADMK & Vijay balas di 2026? Siapa 'raja' Thanjavur selanjutnya?
+
+JUDUL: Thanjavur: DMK Masih 'King'? AIADMK & Vijay Siap Rebutan Tahta 2026!
+RINGKASAN: DMK kuasai Thanjavur 2021. Mampukah AIADMK & Vijay balas di 2026? Siapa 'raja' Thanjavur selanjutnya?
+
+Sumber    : timesnownews
+Tanggal   : 2026-03-19 12:31:35
+Link      : https://www.timesnownews.com/videos/times-now/elections/election-yatra-dmk-dominated-in-thanjavur-in-2021-polls-can-aiadmk-vijay-put-up-a-fight-watch-video-153873636
+Sentiment : NETRAL  (conf=0.95)
+Owner     : EXXE News
+
+======================================================================
+
+[4] Apple Music Ngetag Musik AI: Modal Jujur, Bakal Work Gak Sih?
+──────────────────────────────────────────────────────────────────────
+📋 Apple Music kini ada tag AI buat musik, tapi cuma modal jujur kreator. Bakal bantu kita bedain musik asli atau malah bikin makin bingung?
+
+Oke guys, ada kabar terbaru nih dari dunia musik digital yang
+
+Sumber    : hypebot
+Tanggal   : 2026-03-19 12:31:39
+Link      : https://www.hypebot.com/apple-music-is-adding-tags-to-identify-ai-will-it-help/
+Sentiment : NETRAL  (conf=0.50)
+Owner     : EXXE News
+
+======================================================================
+

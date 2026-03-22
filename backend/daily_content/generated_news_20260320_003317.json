@@ -1,0 +1,37 @@
+{
+  "generated_at": "2026-03-20T00:33:17.886987",
+  "total": 2,
+  "owner": "EXXE News",
+  "articles": [
+    {
+      "original_title": "Ordinance proposing an elk hunting season discussed in EBCI Timber Committee",
+      "original_link": "https://theonefeather.com/2026/03/19/ordinance-proposing-an-elk-hunting-season-discussed-in-ebci-timber-committee/",
+      "original_source": "theonefeather",
+      "original_domain": "geopolitics",
+      "original_published": "2026-03-19 12:31:45",
+      "generated_title": "EBCI Mau Buka Musim Berburu Elk? Komite Udah Rapat, Guys!",
+      "generated_summary": "Komite Timber EBCI baru aja bahas usulan izin musim berburu elk. Bakal ada kebijakan baru soal perburuan di wilayah EBCI? Simak selengkapnya!",
+      "generated_body": "Halo, guys! Ada",
+      "sentiment": "netral",
+      "confidence": 0.95,
+      "score": 0.0,
+      "generated_at": "2026-03-20 00:32:57",
+      "owner": "EXXE News"
+    },
+    {
+      "original_title": "Xiaomi launches new multi-functional smart home product",
+      "original_link": "https://www.notebookcheck.net/Xiaomi-launches-new-multi-functional-smart-home-product.1254698.0.html",
+      "original_source": "notebookcheck",
+      "original_domain": "technology",
+      "original_published": "2026-03-19 12:32:00",
+      "generated_title": "Xiaomi Upgrade Kamar Mandi Jadi Smart Home Level Dewa!",
+      "generated_summary": "Xiaomi rilis Mijia Smart Bathroom Heater G20 di China! Produk smart home ini gabungin pemanas, ventilasi, & lampu, plus support HyperOS Connect. Bikin kamar mandi makin canggih!",
+      "generated_body": "Guys, siap-siap kaget",
+      "sentiment": "positif",
+      "confidence": 0.85,
+      "score": 0.5,
+      "generated_at": "2026-03-20 00:33:10",
+      "owner": "EXXE News"
+    }
+  ]
+}

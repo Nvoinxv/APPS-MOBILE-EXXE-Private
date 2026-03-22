@@ -1,115 +1,279 @@
-from model.user_model import UserModel, UserRole
-from database.sql_connection import MysqlConnection
+# ============================================
+# FILE: controller/autentikasi_controller.py
+# ============================================
+# Perubahan dari versi sebelumnya:
+#   /register → sekarang return access_token juga setelah register sukses
+#   Biar Flutter bisa langsung lanjut ke step 2 & 3 (update profile opsional)
+#   tanpa harus login dulu secara terpisah.
+# ============================================
+
+from model.user_model import UserModel, UserRole, RegisterRequest, LoginRequest
+from database.postgres_sql import Postgres_SQL
 import bcrypt
-from fastapi import Request
+from fastapi import Request, HTTPException
 from fastapi import APIRouter
 from datetime import datetime, timedelta
+import logging
+import re
+import hashlib, random, string
+from middleware.jwt_dependency import get_current_user, create_access_token
 
 router_autentikasi = APIRouter()
 
-
-# Global Login Attempts Store
 LOGIN_ATTEMPTS = {}
 
 def get_db_connection():
-    conn = MysqlConnection()
+    conn = Postgres_SQL()
     return conn, conn.get_connection().cursor()
 
+
+def is_strong_password(password: str) -> bool:
+    if not password or len(password) < 10:
+        return False
+    pattern = re.compile(
+        r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{10,}$'
+    )
+    return bool(pattern.match(password))
+
+
+logging.basicConfig(
+    filename="app_debug.log",
+    level=logging.DEBUG,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: POST /register
+# ══════════════════════════════════════════════════════════════════════════════
+# ✅ PERUBAHAN: Sekarang return access_token setelah register sukses.
+#
+# Kenapa return token di sini?
+# → Flutter register hook punya 3 step:
+#     1. POST /register           (wajib)
+#     2. PUT  /update-profile     (opsional — butuh token)
+#     3. POST /upload-profile-image (opsional — butuh token)
+# → Daripada user harus login dulu setelah register, lebih UX-friendly
+#   kalau kita langsung kasih token di response register.
+#   Ini juga umum dilakukan di banyak API modern (auto-login after register).
 @router_autentikasi.post("/register")
-def register(user: UserModel): 
+def register(user: RegisterRequest):
     connection, cursor = get_db_connection()
     try:
-        query = "INSERT INTO users (name, email, password, role) VALUES (%s, %s, %s, %s)"
-        # hash password user dengan bcrypt
-        hashed_password = bcrypt.hashpw(user.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        values = (user.name, user.email, hashed_password, user.role)
+        logging.debug(f"Register request received: {user.dict()}")
 
-        cursor.execute(query, values)
+        name = user.name.strip()
+        email = user.email.strip().lower()
+        password = user.password
+
+        if not is_strong_password(password):
+            logging.warning(f"Weak password attempt for email: {email}")
+            raise HTTPException(
+                status_code=400,
+                detail="Password tidak cukup kuat. Minimal 10 karakter, "
+                       "harus ada huruf besar, huruf kecil, angka, dan simbol."
+            )
+
+        cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
+        if cursor.fetchone():
+            logging.warning(f"Email sudah terdaftar: {email}")
+            raise HTTPException(status_code=400, detail="Email sudah terdaftar")
+
+        hashed_password = bcrypt.hashpw(
+            password.encode("utf-8"),
+            bcrypt.gensalt()
+        ).decode("utf-8")
+
+        role = UserRole.GENERAL  # Auto set ke GENERAL, tidak bisa dikirim dari client
+
+        cursor.execute(
+            "INSERT INTO users (name, email, password, role) VALUES (%s, %s, %s, %s) RETURNING id",
+            (name, email, hashed_password, role)
+        )
+
+        # Ambil ID user yang baru dibuat
+        result = cursor.fetchone()
+        new_user_id = result["id"] if isinstance(result, dict) else result[0]
+
         connection.get_connection().commit()
-        return {"message": "User berhasil terdaftar!"}
+
+        # ✅ Buat JWT token langsung setelah register
+        # Payload sama persis dengan yang dibuat di /login
+        # Biar Flutter bisa langsung pakai untuk step 2 & 3 (update profile opsional)
+        access_token = create_access_token({
+            "user_id": new_user_id,
+            "email": email,
+            "role": role,
+        })
+
+        logging.info(f"User registered successfully: {email} (id={new_user_id})")
+
+        return {
+            "message": "User berhasil terdaftar",
+            # ✅ Token dikembalikan — Flutter butuh ini untuk step opsional
+            "access_token": access_token,
+            "user": {
+                "id": new_user_id,
+                "name": name,
+                "email": email,
+                "role": role,
+            }
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
         connection.get_connection().rollback()
-        raise e
+        logging.error(f"Error during registration: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Terjadi error: {str(e)}")
     finally:
         connection.close_connection()
 
-@router_autentikasi.post("/upgrade-to-exclusive")    
-def upgrade_to_exclusive(user: UserModel):
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: POST /upgrade-to-exclusive
+# ══════════════════════════════════════════════════════════════════════════════
+@router_autentikasi.post("/upgrade-to-exclusive")
+def upgrade_to_exclusive(email: str, months: int):
     connection, cursor = get_db_connection()
     try:
-        # Tambahkan 30 hari dari sekarang (per bulan)
-        exclusive_until = datetime.now() + timedelta(days=30)
+        if months <= 0 or months > 12:
+            raise HTTPException(
+                status_code=400, detail="Durasi tidak valid (1-12 bulan)"
+            )
+
+        cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="User tidak ditemukan")
+
+        days_to_limit = months * 30
+        exclusive_until = datetime.now() + timedelta(days=days_to_limit)
+
         query = "UPDATE users SET role = %s, exclusive_until = %s WHERE email = %s"
-        cursor.execute(query, (UserRole.EXCLUSIVE, exclusive_until, user.email))
+        cursor.execute(query, (UserRole.EXCLUSIVE, exclusive_until, email))
         connection.get_connection().commit()
-        return {"message": "Upgraded to Exclusive", "expires_on": exclusive_until}
+
+        # TODO: Kirim email peringatan menjelang masa exclusive habis
+
+        return {
+            "message": f"Upgraded to Exclusive for {months} month(s)",
+            "expires_on": exclusive_until.strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        connection.get_connection().rollback()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         connection.close_connection()
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: POST /login
+# ══════════════════════════════════════════════════════════════════════════════
 @router_autentikasi.post("/login")
-def login(user: UserModel, ip_address: str):
+def login(credentials: LoginRequest, request: Request):
+    """
+    Login dengan email dan password.
+    Rate limit: 8 percobaan per IP, lock 24 jam jika melebihi.
+    """
     connection, cursor = get_db_connection()
+
+    ip_address = request.client.host
+
     try:
-        email = user.email
+        email = credentials.email.strip().lower()
+        password = credentials.password
+
         key = (email, ip_address)
         now = datetime.now()
         attempt = LOGIN_ATTEMPTS.get(key)
-        
+
         # Cek rate limit
         if attempt and attempt.get("locked_until"):
             if now < attempt["locked_until"]:
-                return {"message": "Too many attempts. Try again later."}
+                remaining = attempt["locked_until"] - now
+                hours = int(remaining.total_seconds() / 3600)
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Terlalu banyak percobaan. Coba lagi dalam {hours} jam"
+                )
             else:
                 del LOGIN_ATTEMPTS[key]
 
-        # cek user dengan email
         cursor.execute(
-            "SELECT password, role, exclusive_until FROM users WHERE email = %s",
+            "SELECT id, name, password, role, exclusive_until FROM users WHERE email = %s",
             (email,)
         )
         result = cursor.fetchone()
 
         if result:
-            # Check if result is dict or tuple
             if isinstance(result, dict):
-                 stored_password_hash, role, exclusive_until = result['password'], result['role'], result['exclusive_until']
+                user_id = result['id']
+                user_name = result['name']
+                stored_password_hash = result['password']
+                role = result['role']
+                exclusive_until = result['exclusive_until']
             else:
-                 stored_password_hash, role, exclusive_until = result[0], result[1], result[2]
+                user_id, user_name, stored_password_hash, role, exclusive_until = result
 
             if bcrypt.checkpw(
-                user.password.encode("utf-8"),
+                password.encode("utf-8"),
                 stored_password_hash.encode("utf-8")
             ):
-                # sukses → reset
                 LOGIN_ATTEMPTS.pop(key, None)
 
-                # downgrade exclusive
                 if role == UserRole.EXCLUSIVE and exclusive_until and exclusive_until < now:
                     role = UserRole.GENERAL
                     cursor.execute(
                         "UPDATE users SET role = %s WHERE email = %s",
                         (UserRole.GENERAL, email)
                     )
-                    connection.get_connection().commit()
+                    cursor.connection.commit()
 
-                return {"message": "Login Successful", "role": role}
-        
-        # Ini gw masih beri kesempatan 
-        # jika sudah 8 kali percobaan, walau di lock
-        # nanti setelah 24 jam maka akan di buka lagi untuk login
+                access_token = create_access_token({
+                    "user_id": user_id,
+                    "email": email,
+                    "role": role
+                })
+
+                return {
+                    "success": True,
+                    "message": "Login berhasil",
+                    "access_token": access_token,
+                    "user": {
+                        "id": user_id,
+                        "name": user_name,
+                        "email": email,
+                        "role": role
+                    }
+                }
+
+        # Login gagal — increment attempts
         if not attempt:
-            LOGIN_ATTEMPTS[key] = {
-                "count": 1,
-                "locked_until": None
-            }
+            LOGIN_ATTEMPTS[key] = {"count": 1, "locked_until": None}
         else:
             attempt["count"] += 1
             if attempt["count"] >= 8:
                 attempt["locked_until"] = now + timedelta(hours=24)
+                raise HTTPException(
+                    status_code=429,
+                    detail="Terlalu banyak percobaan login gagal. Akun dikunci selama 24 jam"
+                )
 
-        return {"message": "Login Failed"}
+        raise HTTPException(status_code=401, detail="Email atau password salah")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Login error: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
     finally:
         connection.close_connection()
+
 
 def check_permission(role, required_role):
     """

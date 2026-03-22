@@ -1,0 +1,1 @@
+# Dataclass TradeSetup (sekarang punya tp1-tp5, bukan 

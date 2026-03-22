@@ -1,0 +1,21 @@
+exxe_quant_core/
+│
+├── module_a__volatility/
+│   ├── atr_calculator.py         # Ngitung raw ATR (ta.atr)
+│   ├── trailing_stop.py           # Logic trailing stop adaptif
+│   └── signal_trigger.py          # Crossover detection → raw buy/sell
+│
+├── module_b__kalman/
+│   ├── kalman_filter.py           # Fungsi recursive kalman (core math)
+│   ├── dual_horizon.py            # Short (50) & Long (150) estimate
+│   └── trend_state.py             # trend_up / trend_down determination
+│
+├── module_c__regression/
+│   ├── linear_regression.py       # Fungsi OLS regression + slope/intercept
+│   ├── deviation_bands.py         # Upper, Mid, Lower band calculator
+│   └── quality_zones.py           # Discount zone vs Premium zone logic
+│
+└── module_d__signal_engine/
+    ├── base_signal.py             # base_Buy & base_Sell (A + B combined)
+    ├── classifier.py              # bright vs dark (filter pakai C)
+    └── alert_dispatcher.py        # Final signal output + alertcondition

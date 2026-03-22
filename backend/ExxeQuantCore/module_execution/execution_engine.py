@@ -1,0 +1,1 @@
+# Main loop: buka trade di base_Buy/Sell (bukan filtered)
