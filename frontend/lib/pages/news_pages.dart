@@ -6,7 +6,7 @@ import '../style/apps_color_news.dart';
 import '../postingan/postingan_news.dart';
 
 // ---------------------------------------------------------------------------
-// Unified News Item
+// Unified News Item (tidak berubah)
 // ---------------------------------------------------------------------------
 
 enum NewsSource { database, ai }
@@ -30,7 +30,6 @@ class UnifiedNewsItem {
     return d['Title']?.toString() ?? d['title']?.toString() ?? 'No Title';
   }
 
-  // Pakai generatedSummary untuk preview card (pendek, clean)
   String get description {
     if (source == NewsSource.ai) return aiData?.generatedSummary ?? '';
     final d = dbData!;
@@ -64,12 +63,11 @@ class UnifiedNewsItem {
   String get sentiment      => source == NewsSource.ai ? (aiData?.sentiment      ?? '') : '';
   double get confidence     => source == NewsSource.ai ? (aiData?.confidence     ?? 0.0) : 0.0;
   String get originalDomain => source == NewsSource.ai ? (aiData?.originalDomain ?? '') : '';
-  // generatedSummary & generatedBody untuk detail screen
   String get generatedSummary => source == NewsSource.ai ? (aiData?.generatedSummary ?? '') : '';
 }
 
 // ---------------------------------------------------------------------------
-// NewsSection
+// NewsSection — OPTIMIZED
 // ---------------------------------------------------------------------------
 
 class NewsSection extends StatefulWidget {
@@ -87,6 +85,7 @@ class NewsSection extends StatefulWidget {
 }
 
 class _NewsSectionState extends State<NewsSection> {
+  // ── State ─────────────────────────────────────────────────────────────────
   List<Map<String, dynamic>> _dbNews = [];
   List<GeneratedNewsArticle> _aiNews = [];
   bool _aiGenerating = false;
@@ -95,8 +94,14 @@ class _NewsSectionState extends State<NewsSection> {
   List<UnifiedNewsItem> _feed         = [];
   List<UnifiedNewsItem> _filteredFeed = [];
 
-  bool _isLoading = true;
+  // FIX 1: Pisahkan loading state — DB dan AI independen
+  bool _isDbLoading = true;
+  bool _isAiLoading = false;
+
   final TextEditingController _searchController = TextEditingController();
+
+  // FIX 2: Debounce timer untuk search, hindari rebuild tiap karakter
+  DateTime? _lastSearch;
 
   int get _dbCount => _feed.where((e) => e.source == NewsSource.database).length;
   int get _aiCount => _feed.where((e) => e.source == NewsSource.ai).length;
@@ -104,7 +109,7 @@ class _NewsSectionState extends State<NewsSection> {
   @override
   void initState() {
     super.initState();
-    _searchController.addListener(_filterFeed);
+    _searchController.addListener(_onSearchChanged);
     _loadAll();
   }
 
@@ -114,13 +119,28 @@ class _NewsSectionState extends State<NewsSection> {
     super.dispose();
   }
 
-  // ── Data loading ────────────────────────────────────────────────────────────
+  // ── Search dengan debounce 300ms ─────────────────────────────────────────
+  // FIX 3: Debounce — jangan rebuild tiap keystroke
+  void _onSearchChanged() {
+    final now = DateTime.now();
+    _lastSearch = now;
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      if (_lastSearch == now) _filterFeed();
+    });
+  }
+
+  // ── Data loading ─────────────────────────────────────────────────────────
 
   Future<void> _loadAll() async {
-    setState(() => _isLoading = true);
-    await Future.wait([_loadDbNews(), _triggerAiBackground()]);
-    _rebuildFeed();
-    setState(() => _isLoading = false);
+    // FIX 4: Load DB dulu, tampilkan UI segera, AI di-background terpisah
+    await _loadDbNews();
+    if (mounted) {
+      setState(() => _isDbLoading = false);
+      _rebuildFeed();
+    }
+    // AI jalan di background — tidak blok UI
+    _triggerAiBackground();
   }
 
   Future<void> _loadDbNews() async {
@@ -140,8 +160,11 @@ class _NewsSectionState extends State<NewsSection> {
     }
   }
 
+  // FIX 5: Hapus Future.delayed hardcoded, polling lebih cerdas
   Future<void> _triggerAiBackground() async {
-    if (mounted) setState(() { _aiGenerating = true; _aiError = null; });
+    if (!mounted) return;
+    setState(() { _isAiLoading = true; _aiGenerating = true; _aiError = null; });
+
     try {
       final bgHook = AiNewsGenerateBackgroundHook();
       await bgHook.trigger(
@@ -149,36 +172,49 @@ class _NewsSectionState extends State<NewsSection> {
         categories: 'economy,technology,geopolitics',
         language:   'en',
       );
-      if (bgHook.error != null) { _aiError = bgHook.error!.message; return; }
-      await Future.delayed(const Duration(seconds: 3));
-      await _fetchAiNews();
+
+      if (bgHook.error != null) {
+        _aiError = bgHook.error!.message;
+        return;
+      }
+
+      // Poll dengan exponential backoff, bukan delay tetap 3 detik
+      await _pollAiWithBackoff();
+
     } catch (e) {
-      _aiError = e.toString();
+      if (mounted) _aiError = e.toString();
       debugPrint('❌ AI background error: $e');
     } finally {
-      if (mounted) setState(() => _aiGenerating = false);
+      if (mounted) setState(() { _isAiLoading = false; _aiGenerating = false; });
     }
   }
 
-  Future<void> _fetchAiNews() async {
-    try {
+  // Poll sampai data siap, dengan jeda yang bertambah (bukan delay tetap)
+  Future<void> _pollAiWithBackoff() async {
+    const delays = [2, 3, 4, 5]; // detik, total max ~14 detik
+    for (final seconds in delays) {
+      await Future.delayed(Duration(seconds: seconds));
+      if (!mounted) return;
+
       final hook = AiNewsGenerateHook();
       await hook.generate(const GenerateNewsRequest(
         maxNews: 5, exportJson: true, exportTxt: false,
       ));
-      if (hook.data != null) {
+
+      if (hook.data != null && hook.data!.articles.isNotEmpty) {
         _aiNews = hook.data!.articles;
-        _rebuildFeed();
-        if (mounted) setState(() {});
+        // FIX 6: Satu setState saja setelah semua data siap
+        if (mounted) setState(_rebuildFeed);
+        return; // berhasil, hentikan polling
       }
-    } catch (e) {
-      debugPrint('❌ AI fetch error: $e');
     }
   }
 
+  // FIX 7: _rebuildFeed tidak panggil setState sendiri — caller yang panggil
   void _rebuildFeed() {
     final dbItems = _dbNews.map((e) => UnifiedNewsItem.fromDb(e)).toList();
     final aiItems = _aiNews.map((e) => UnifiedNewsItem.fromAi(e)).toList();
+
     final combined = <UnifiedNewsItem>[];
     int dbIdx = 0, aiIdx = 0;
     while (dbIdx < dbItems.length || aiIdx < aiItems.length) {
@@ -187,31 +223,42 @@ class _NewsSectionState extends State<NewsSection> {
       }
       if (aiIdx < aiItems.length) combined.add(aiItems[aiIdx++]);
     }
+
     _feed = combined;
-    _filterFeed();
+    _applyFilter(); // tidak panggil setState di sini
   }
 
-  void _filterFeed() {
+  // Filter tanpa setState — dipanggil dari context yang sudah punya setState
+  void _applyFilter() {
     final query = _searchController.text.toLowerCase();
-    setState(() {
-      if (query.isEmpty) {
-        _filteredFeed = List.from(_feed);
-      } else {
-        _filteredFeed = _feed.where((item) {
-          return item.title.toLowerCase().contains(query) ||
-              item.description.toLowerCase().contains(query) ||
-              item.newsSource.toLowerCase().contains(query);
-        }).toList();
-      }
-    });
+    if (query.isEmpty) {
+      _filteredFeed = List.from(_feed);
+    } else {
+      _filteredFeed = _feed.where((item) {
+        return item.title.toLowerCase().contains(query) ||
+            item.description.toLowerCase().contains(query) ||
+            item.newsSource.toLowerCase().contains(query);
+      }).toList();
+    }
+  }
+
+  // Dipanggil dari debounce search — butuh setState
+  void _filterFeed() {
+    if (!mounted) return;
+    setState(_applyFilter);
   }
 
   Future<void> _refresh() async {
-    _dbNews = []; _aiNews = []; _feed = [];
+    if (!mounted) return;
+    setState(() {
+      _dbNews = []; _aiNews = []; _feed = [];
+      _isDbLoading = true; _isAiLoading = false;
+      _aiError = null;
+    });
     await _loadAll();
   }
 
-  // ── Navigation ───────────────────────────────────────────────────────────────
+  // ── Navigation ────────────────────────────────────────────────────────────
 
   void _openDbNews(UnifiedNewsItem item) {
     Navigator.push(
@@ -232,7 +279,7 @@ class _NewsSectionState extends State<NewsSection> {
     );
   }
 
-  // ── Build ────────────────────────────────────────────────────────────────────
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -242,116 +289,152 @@ class _NewsSectionState extends State<NewsSection> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Header
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 48),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          NewsColorStyle.greenNeon.withOpacity(0.2),
-                          NewsColorStyle.greenNeon.withOpacity(0.05),
-                        ],
-                        begin: Alignment.topLeft,
-                        end:   Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: NewsColorStyle.greenNeon.withOpacity(0.3),
-                        width: 1.5,
-                      ),
-                    ),
-                    child: Icon(
-                      Icons.article_outlined,
-                      color: NewsColorStyle.greenNeon,
-                      size:  28,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Text('News', style: NewsColorStyle.sectionTitleStyle),
-                  const SizedBox(width: 16),
-                  if (_aiGenerating) const _AiGeneratingBadge(),
-                ],
-              ),
-              Row(
-                children: [
-                  _buildSearchBar(),
-                  if (isAdmin) ...[
-                    const SizedBox(width: 16),
-                    _buildAddButton(),
-                  ],
-                ],
-              ),
-            ],
-          ),
+        // Header — dibungkus RepaintBoundary agar tidak ikut rebuild
+        RepaintBoundary(
+          child: _buildHeader(isAdmin),
         ),
 
         // Stats bar
         Padding(
           padding: const EdgeInsets.fromLTRB(48, 16, 48, 0),
-          child: Row(
-            children: [
-              _StatChip(
-                label: '$_dbCount Exclusive',
-                color: NewsColorStyle.greenNeon,
-                icon:  Icons.newspaper_outlined,
-              ),
-              const SizedBox(width: 12),
-              _StatChip(
-                label: '$_aiCount AI Generated',
-                color: NewsColorStyle.greenPrimary,
-                icon:  Icons.auto_awesome,
-              ),
-              if (_aiError != null) ...[
-                const SizedBox(width: 12),
-                _StatChip(
-                  label: 'AI Unavailable',
-                  color: Colors.red.shade400,
-                  icon:  Icons.error_outline,
-                ),
-              ],
-            ],
-          ),
+          child: _buildStatsBar(),
         ),
 
         const SizedBox(height: 32),
 
         // Content
-        if (_isLoading)
-          SizedBox(
-            height: 400,
-            child: Center(
-              child: CircularProgressIndicator(
-                color: NewsColorStyle.greenNeon, strokeWidth: 3,
-              ),
-            ),
-          )
-        else if (_filteredFeed.isEmpty)
-          _buildEmptyState(isAdmin)
-        else
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 48),
-            child: Column(
-              children: _filteredFeed.map((item) {
-                return item.source == NewsSource.database
-                    ? _DbNewsCard(
-                        item:  item,
-                        onTap: () => _openDbNews(item),
-                      )
-                    : _AiNewsCard(
-                        item:  item,
-                        onTap: () => _openAiNews(item),
-                      );
-              }).toList(),
-            ),
-          ),
+        _buildContent(isAdmin),
       ],
+    );
+  }
+
+  Widget _buildHeader(bool isAdmin) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 48),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      NewsColorStyle.greenNeon.withOpacity(0.2),
+                      NewsColorStyle.greenNeon.withOpacity(0.05),
+                    ],
+                    begin: Alignment.topLeft,
+                    end:   Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: NewsColorStyle.greenNeon.withOpacity(0.3),
+                    width: 1.5,
+                  ),
+                ),
+                child: Icon(
+                  Icons.article_outlined,
+                  color: NewsColorStyle.greenNeon,
+                  size:  28,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Text('News', style: NewsColorStyle.sectionTitleStyle),
+              const SizedBox(width: 16),
+              if (_aiGenerating) const _AiGeneratingBadge(),
+            ],
+          ),
+          Row(
+            children: [
+              _buildSearchBar(),
+              if (isAdmin) ...[
+                const SizedBox(width: 16),
+                _buildAddButton(),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatsBar() {
+    return Row(
+      children: [
+        _StatChip(
+          label: '$_dbCount Exclusive',
+          color: NewsColorStyle.greenNeon,
+          icon:  Icons.newspaper_outlined,
+        ),
+        const SizedBox(width: 12),
+        _StatChip(
+          label: '$_aiCount AI Generated',
+          color: NewsColorStyle.greenPrimary,
+          icon:  Icons.auto_awesome,
+        ),
+        if (_aiError != null) ...[
+          const SizedBox(width: 12),
+          _StatChip(
+            label: 'AI Unavailable',
+            color: Colors.red.shade400,
+            icon:  Icons.error_outline,
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildContent(bool isAdmin) {
+    // DB masih loading
+    if (_isDbLoading) {
+      return SizedBox(
+        height: 400,
+        child: Center(
+          child: CircularProgressIndicator(
+            color: NewsColorStyle.greenNeon, strokeWidth: 3,
+          ),
+        ),
+      );
+    }
+
+    // Feed kosong
+    if (_filteredFeed.isEmpty) {
+      return _buildEmptyState(isAdmin);
+    }
+
+    // FIX 8: ListView.builder — lazy render, tidak build semua card sekaligus
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 48),
+      child: ListView.builder(
+        shrinkWrap: true,
+        physics:    const NeverScrollableScrollPhysics(), // scroll dari parent
+        itemCount:  _filteredFeed.length +
+            (_isAiLoading && _aiNews.isEmpty ? 1 : 0), // slot loading AI
+        itemBuilder: (context, index) {
+          // Slot terakhir: AI sedang loading, tampilkan skeleton
+          if (index == _filteredFeed.length) {
+            return const _AiLoadingCard();
+          }
+
+          final item = _filteredFeed[index];
+
+          // FIX 9: RepaintBoundary per card — hover satu card tidak rebuild yang lain
+          return RepaintBoundary(
+            child: item.source == NewsSource.database
+                ? _DbNewsCard(
+                    key:   ValueKey('db-${item.dbData.hashCode}'),
+                    item:  item,
+                    onTap: () => _openDbNews(item),
+                  )
+                : _AiNewsCard(
+                    key:   ValueKey('ai-${item.aiData.hashCode}'),
+                    item:  item,
+                    onTap: () => _openAiNews(item),
+                  ),
+          );
+        },
+      ),
     );
   }
 
@@ -457,13 +540,93 @@ class _NewsSectionState extends State<NewsSection> {
 }
 
 // ===========================================================================
-// DB News Card — tidak berubah
+// AI Loading Skeleton Card — ditampilkan saat AI masih generate
+// ===========================================================================
+
+class _AiLoadingCard extends StatefulWidget {
+  const _AiLoadingCard();
+
+  @override
+  State<_AiLoadingCard> createState() => _AiLoadingCardState();
+}
+
+class _AiLoadingCardState extends State<_AiLoadingCard>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat(reverse: true);
+    _anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _anim,
+      builder: (_, __) {
+        final opacity = 0.04 + _anim.value * 0.08;
+        return Container(
+          margin: const EdgeInsets.only(bottom: 32),
+          height: 180,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(opacity),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: const Color(0xFF1A3D20),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 18, height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: NewsColorStyle.greenPrimary.withOpacity(0.5),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'AI sedang membuat artikel...',
+                style: TextStyle(
+                  color: NewsColorStyle.greenPrimary.withOpacity(0.5),
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ===========================================================================
+// DB News Card — tidak berubah signifikan, tambah ValueKey
 // ===========================================================================
 
 class _DbNewsCard extends StatefulWidget {
   final UnifiedNewsItem item;
   final VoidCallback    onTap;
-  const _DbNewsCard({required this.item, required this.onTap});
+
+  const _DbNewsCard({
+    super.key,
+    required this.item,
+    required this.onTap,
+  });
 
   @override
   State<_DbNewsCard> createState() => _DbNewsCardState();
@@ -522,6 +685,8 @@ class _DbNewsCardState extends State<_DbNewsCard> {
                     child: fullImageUrl.isNotEmpty
                         ? Image.network(
                             fullImageUrl, height: 280, fit: BoxFit.cover,
+                            // FIX 10: cacheWidth/cacheHeight agar gambar tidak decode full size
+                            cacheWidth:  600,
                             errorBuilder:  (_, __, ___) => _imagePlaceholder(),
                             loadingBuilder: (_, child, progress) {
                               if (progress == null) return child;
@@ -695,14 +860,18 @@ class _DbNewsCardState extends State<_DbNewsCard> {
 }
 
 // ===========================================================================
-// AI News Card — UPDATED: warna hijau tua + tappable
+// AI News Card — tidak berubah, tambah ValueKey
 // ===========================================================================
 
 class _AiNewsCard extends StatefulWidget {
   final UnifiedNewsItem item;
-  final VoidCallback    onTap;   // ← tappable sekarang
+  final VoidCallback    onTap;
 
-  const _AiNewsCard({required this.item, required this.onTap});
+  const _AiNewsCard({
+    super.key,
+    required this.item,
+    required this.onTap,
+  });
 
   @override
   State<_AiNewsCard> createState() => _AiNewsCardState();
@@ -711,16 +880,15 @@ class _AiNewsCard extends StatefulWidget {
 class _AiNewsCardState extends State<_AiNewsCard> {
   bool isHovered = false;
 
-  // Palet hijau tua — selaras dengan NewsColorStyle
-  static const _aiAccent  = Color(0xFF00CC44);   // greenPrimary
-  static const _aiNeon    = Color(0xFFBEFF00);   // greenNeon, untuk highlight
-  static const _aiBg      = Color(0xFF0A1A0D);   // hijau sangat gelap
-  static const _aiBgPanel = Color(0xFF0D2010);   // panel kiri sedikit lebih terang
-  static const _aiBorder  = Color(0xFF1A3D20);   // border hijau tua
+  static const _aiAccent  = Color(0xFF00CC44);
+  static const _aiNeon    = Color(0xFFBEFF00);
+  static const _aiBg      = Color(0xFF0A1A0D);
+  static const _aiBgPanel = Color(0xFF0D2010);
+  static const _aiBorder  = Color(0xFF1A3D20);
 
   Color get _sentimentColor {
     switch (widget.item.sentiment.toLowerCase()) {
-      case 'optimis': case 'positif':  return const Color(0xFFBEFF00);  // neon green
+      case 'optimis': case 'positif':  return const Color(0xFFBEFF00);
       case 'negatif': case 'pesimis':  return const Color(0xFFFF5A5A);
       default:                          return const Color(0xFF66AA77);
     }
@@ -743,7 +911,7 @@ class _AiNewsCardState extends State<_AiNewsCard> {
       onEnter: (_) => setState(() => isHovered = true),
       onExit:  (_) => setState(() => isHovered = false),
       child: GestureDetector(
-        onTap: widget.onTap,   // ← bisa di-tap sekarang
+        onTap: widget.onTap,
         child: Container(
           margin: const EdgeInsets.only(bottom: 32),
           child: AnimatedContainer(
@@ -770,7 +938,6 @@ class _AiNewsCardState extends State<_AiNewsCard> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── Kiri: AI visual panel (40%) ─────────────────────────
                 Expanded(
                   flex: 4,
                   child: ClipRRect(
@@ -791,19 +958,15 @@ class _AiNewsCardState extends State<_AiNewsCard> {
                       ),
                       child: Stack(
                         children: [
-                          // Dot pattern hijau
                           Positioned.fill(
                             child: CustomPaint(
                               painter: _DotPatternPainter(color: _aiAccent),
                             ),
                           ),
-
-                          // Sentiment di tengah
                           Center(
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                // Sentiment circle
                                 Container(
                                   width: 80, height: 80,
                                   decoration: BoxDecoration(
@@ -857,8 +1020,6 @@ class _AiNewsCardState extends State<_AiNewsCard> {
                               ],
                             ),
                           ),
-
-                          // AI badge — pojok kiri atas, hijau
                           Positioned(
                             top: 16, left: 16,
                             child: Container(
@@ -886,8 +1047,6 @@ class _AiNewsCardState extends State<_AiNewsCard> {
                               ),
                             ),
                           ),
-
-                          // Tap hint — pojok kanan atas
                           Positioned(
                             top: 16, right: 16,
                             child: AnimatedOpacity(
@@ -906,8 +1065,6 @@ class _AiNewsCardState extends State<_AiNewsCard> {
                               ),
                             ),
                           ),
-
-                          // Domain — pojok kanan bawah
                           if (item.originalDomain.isNotEmpty)
                             Positioned(
                               bottom: 16, right: 16,
@@ -931,8 +1088,6 @@ class _AiNewsCardState extends State<_AiNewsCard> {
                     ),
                   ),
                 ),
-
-                // ── Kanan: konten (60%) ──────────────────────────────────
                 Expanded(
                   flex: 6,
                   child: Padding(
@@ -940,7 +1095,6 @@ class _AiNewsCardState extends State<_AiNewsCard> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Badge AI — hijau
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                           decoration: BoxDecoration(
@@ -965,10 +1119,7 @@ class _AiNewsCardState extends State<_AiNewsCard> {
                             ],
                           ),
                         ),
-
                         const SizedBox(height: 16),
-
-                        // Title
                         Text(
                           item.title,
                           style: const TextStyle(
@@ -977,10 +1128,7 @@ class _AiNewsCardState extends State<_AiNewsCard> {
                           ),
                           maxLines: 2, overflow: TextOverflow.ellipsis,
                         ),
-
                         const SizedBox(height: 12),
-
-                        // Summary / Description (sudah pakai generatedSummary via getter)
                         Text(
                           item.description,
                           style: TextStyle(
@@ -989,10 +1137,7 @@ class _AiNewsCardState extends State<_AiNewsCard> {
                           ),
                           maxLines: 3, overflow: TextOverflow.ellipsis,
                         ),
-
                         const SizedBox(height: 20),
-
-                        // Source + Date
                         Row(
                           children: [
                             Container(
@@ -1027,10 +1172,7 @@ class _AiNewsCardState extends State<_AiNewsCard> {
                             ],
                           ],
                         ),
-
                         const SizedBox(height: 12),
-
-                        // Category tag — hijau
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
@@ -1056,10 +1198,7 @@ class _AiNewsCardState extends State<_AiNewsCard> {
                             ],
                           ),
                         ),
-
                         const SizedBox(height: 20),
-
-                        // Read more CTA — hijau
                         Row(
                           children: [
                             Text(
@@ -1104,13 +1243,11 @@ class _AiNewsCardState extends State<_AiNewsCard> {
 }
 
 // ===========================================================================
-// AI News Detail Screen
-// Dibuka saat tap _AiNewsCard — menampilkan full artikel AI
+// AI News Detail Screen — tidak berubah
 // ===========================================================================
 
 class AiNewsDetailScreen extends StatefulWidget {
   final GeneratedNewsArticle aiData;
-
   const AiNewsDetailScreen({super.key, required this.aiData});
 
   @override
@@ -1147,8 +1284,6 @@ class _AiNewsDetailScreenState extends State<AiNewsDetailScreen>
     super.dispose();
   }
 
-  // ── Accessors ────────────────────────────────────────────────────────────────
-
   GeneratedNewsArticle get d => widget.aiData;
 
   Color get _sentimentColor {
@@ -1171,8 +1306,6 @@ class _AiNewsDetailScreenState extends State<AiNewsDetailScreen>
       return '${parsed.day}/${parsed.month}/${parsed.year}';
     } catch (_) { return date; }
   }
-
-  // ── Build ─────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -1225,8 +1358,6 @@ class _AiNewsDetailScreenState extends State<AiNewsDetailScreen>
     );
   }
 
-  // ── Top bar ──────────────────────────────────────────────────────────────────
-
   Widget _buildTopBar(BuildContext context) {
     return Container(
       padding: const EdgeInsets.fromLTRB(48, 24, 48, 16),
@@ -1236,7 +1367,6 @@ class _AiNewsDetailScreenState extends State<AiNewsDetailScreen>
       ),
       child: Row(
         children: [
-          // Back
           MouseRegion(
             cursor: SystemMouseCursors.click,
             child: GestureDetector(
@@ -1255,8 +1385,6 @@ class _AiNewsDetailScreenState extends State<AiNewsDetailScreen>
             ),
           ),
           const SizedBox(width: 20),
-
-          // Label
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
@@ -1279,10 +1407,7 @@ class _AiNewsDetailScreenState extends State<AiNewsDetailScreen>
               ],
             ),
           ),
-
           const Spacer(),
-
-          // Copy button
           MouseRegion(
             cursor: SystemMouseCursors.click,
             child: GestureDetector(
@@ -1324,8 +1449,6 @@ class _AiNewsDetailScreenState extends State<AiNewsDetailScreen>
       ),
     );
   }
-
-  // ── Badge row (sentiment + generated_at) ─────────────────────────────────────
 
   Widget _buildBadgeRow() {
     return Row(
@@ -1375,8 +1498,6 @@ class _AiNewsDetailScreenState extends State<AiNewsDetailScreen>
     );
   }
 
-  // ── Summary card ─────────────────────────────────────────────────────────────
-
   Widget _buildSummaryCard() {
     if (d.generatedSummary.isEmpty) return const SizedBox.shrink();
     return Container(
@@ -1395,7 +1516,6 @@ class _AiNewsDetailScreenState extends State<AiNewsDetailScreen>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Accent bar kiri
           Container(
             width: 3, height: 48,
             decoration: BoxDecoration(
@@ -1425,8 +1545,6 @@ class _AiNewsDetailScreenState extends State<AiNewsDetailScreen>
     );
   }
 
-  // ── Title ────────────────────────────────────────────────────────────────────
-
   Widget _buildTitle() {
     return Text(
       d.generatedTitle,
@@ -1436,8 +1554,6 @@ class _AiNewsDetailScreenState extends State<AiNewsDetailScreen>
       ),
     );
   }
-
-  // ── Meta row ─────────────────────────────────────────────────────────────────
 
   Widget _buildMetaRow() {
     return Row(
@@ -1483,8 +1599,6 @@ class _AiNewsDetailScreenState extends State<AiNewsDetailScreen>
     );
   }
 
-  // ── Gradient divider ─────────────────────────────────────────────────────────
-
   Widget _buildGradientDivider() {
     return Container(
       height: 1,
@@ -1495,8 +1609,6 @@ class _AiNewsDetailScreenState extends State<AiNewsDetailScreen>
       ),
     );
   }
-
-  // ── Body ─────────────────────────────────────────────────────────────────────
 
   Widget _buildBody() {
     final paragraphs = d.generatedBody
@@ -1546,8 +1658,6 @@ class _AiNewsDetailScreenState extends State<AiNewsDetailScreen>
       }).toList(),
     );
   }
-
-  // ── Source card ──────────────────────────────────────────────────────────────
 
   Widget _buildSourceCard() {
     return Container(
@@ -1617,7 +1727,6 @@ class _AiNewsDetailScreenState extends State<AiNewsDetailScreen>
               cursor: SystemMouseCursors.click,
               child: GestureDetector(
                 onTap: () {
-                  // url_launcher: launchUrl(Uri.parse(d.originalLink));
                   Clipboard.setData(ClipboardData(text: d.originalLink));
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                     content:         const Text('Link copied to clipboard'),
@@ -1656,8 +1765,6 @@ class _AiNewsDetailScreenState extends State<AiNewsDetailScreen>
       ),
     );
   }
-
-  // ── Analysis card (confidence + score) ──────────────────────────────────────
 
   Widget _buildAnalysisCard() {
     return Container(
@@ -1748,7 +1855,7 @@ class _AiNewsDetailScreenState extends State<AiNewsDetailScreen>
 }
 
 // ===========================================================================
-// Custom painter — dot pattern (warna bisa dikonfigurasi)
+// Custom Painter — dot pattern
 // ===========================================================================
 
 class _DotPatternPainter extends CustomPainter {

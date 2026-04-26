@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import '../candle/candle_normal.dart';
 import '../controller/risk_ratio_button.dart';
 
-/// ChartControls - Satu tombol Tools di bottom bar
-/// Menggunakan Overlay agar popup tidak menghalangi chart
+/// ChartControls - Bottom bar dengan popup Tools menu
 class ChartControls extends StatefulWidget {
   final CandlestickStyle style;
 
@@ -20,12 +19,10 @@ class ChartControls extends StatefulWidget {
   final VoidCallback onToggleFibonacci;
   final VoidCallback onToggleRiskRatio;
   final VoidCallback onSwitchRiskRatioMode;
-  final Function(BuildContext, Offset) onShowRiskRatioContextMenu;
+  // HAPUS: onShowRiskRatioContextMenu — context menu sekarang via right-click di overlay
   final VoidCallback onSettings;
   final VoidCallback onReset;
-
-  // ── FIX: tambah strategy2Button sebagai optional widget ──────────────
-  final Widget? strategy2Button;
+  final Widget?      strategy2Button;
 
   const ChartControls({
     Key? key,
@@ -42,10 +39,9 @@ class ChartControls extends StatefulWidget {
     required this.onToggleFibonacci,
     required this.onToggleRiskRatio,
     required this.onSwitchRiskRatioMode,
-    required this.onShowRiskRatioContextMenu,
     required this.onSettings,
     required this.onReset,
-    this.strategy2Button, // ← optional, tidak break existing code
+    this.strategy2Button,
   }) : super(key: key);
 
   @override
@@ -72,7 +68,7 @@ class _ChartControlsState extends State<ChartControls>
     _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
     _slideAnim = Tween<Offset>(
       begin: const Offset(0, 0.1),
-      end: Offset.zero,
+      end:   Offset.zero,
     ).animate(CurvedAnimation(parent: _animController, curve: Curves.easeOut));
   }
 
@@ -159,7 +155,6 @@ class _ChartControlsState extends State<ChartControls>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Kiri: Reset
           _BarButton(
             icon:     Icons.refresh_rounded,
             label:    'Reset',
@@ -168,13 +163,11 @@ class _ChartControlsState extends State<ChartControls>
             onTap:    widget.onReset,
           ),
 
-          // ── FIX: Strategy 2 button (tampil kalau ada) ──────────────
           if (widget.strategy2Button != null) ...[
             const SizedBox(width: 8),
             widget.strategy2Button!,
           ],
 
-          // Tengah: indikator tool aktif
           if (activeLabel != null) ...[
             const SizedBox(width: 8),
             _ActiveIndicator(
@@ -191,7 +184,6 @@ class _ChartControlsState extends State<ChartControls>
 
           const Spacer(),
 
-          // Kanan: tombol Tools
           _BarButton(
             key:      _toolsBtnKey,
             icon:     _isOpen ? Icons.close_rounded : Icons.tune_rounded,
@@ -207,30 +199,28 @@ class _ChartControlsState extends State<ChartControls>
 }
 
 // ─────────────────────────────────────────────
-// Popup menu dirender di Overlay layer
+// Popup menu di Overlay layer
 // ─────────────────────────────────────────────
 class _OverlayMenu extends StatelessWidget {
-  final CandlestickStyle style;
-  final Offset btnPosition;
-  final Size   btnSize;
+  final CandlestickStyle  style;
+  final Offset            btnPosition;
+  final Size              btnSize;
   final Animation<double> fadeAnim;
   final Animation<Offset> slideAnim;
-
-  final bool showVolume;
-  final bool showGrid;
-  final bool showCrosshair;
-  final bool isFibonacciMode;
-  final bool isRiskRatioMode;
-  final RiskRatioMode riskRatioMode;
-
-  final VoidCallback onClose;
-  final VoidCallback onToggleVolume;
-  final VoidCallback onToggleGrid;
-  final VoidCallback onToggleCrosshair;
-  final VoidCallback onToggleFibonacci;
-  final VoidCallback onToggleRiskRatio;
-  final VoidCallback onSwitchRiskRatioMode;
-  final VoidCallback onSettings;
+  final bool              showVolume;
+  final bool              showGrid;
+  final bool              showCrosshair;
+  final bool              isFibonacciMode;
+  final bool              isRiskRatioMode;
+  final RiskRatioMode     riskRatioMode;
+  final VoidCallback      onClose;
+  final VoidCallback      onToggleVolume;
+  final VoidCallback      onToggleGrid;
+  final VoidCallback      onToggleCrosshair;
+  final VoidCallback      onToggleFibonacci;
+  final VoidCallback      onToggleRiskRatio;
+  final VoidCallback      onSwitchRiskRatioMode;
+  final VoidCallback      onSettings;
 
   const _OverlayMenu({
     required this.style,
@@ -262,7 +252,6 @@ class _OverlayMenu extends StatelessWidget {
 
     return Stack(
       children: [
-        // Backdrop
         Positioned.fill(
           child: GestureDetector(
             onTap:    onClose,
@@ -270,8 +259,6 @@ class _OverlayMenu extends StatelessWidget {
             child:    const ColoredBox(color: Colors.transparent),
           ),
         ),
-
-        // Popup card
         Positioned(
           bottom: MediaQuery.of(context).size.height - btnPosition.dy + 8,
           right:  menuRight,
@@ -297,7 +284,7 @@ class _OverlayMenu extends StatelessWidget {
                     ],
                   ),
                   child: Column(
-                    mainAxisSize:      MainAxisSize.min,
+                    mainAxisSize:       MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Padding(
@@ -305,9 +292,9 @@ class _OverlayMenu extends StatelessWidget {
                         child: Text(
                           'CHART TOOLS',
                           style: TextStyle(
-                            color:       style.textColor.withOpacity(0.4),
-                            fontSize:    10,
-                            fontWeight:  FontWeight.w700,
+                            color:         style.textColor.withOpacity(0.4),
+                            fontSize:      10,
+                            fontWeight:    FontWeight.w700,
                             letterSpacing: 1.4,
                           ),
                         ),
@@ -316,34 +303,21 @@ class _OverlayMenu extends StatelessWidget {
                       const SizedBox(height: 4),
 
                       _MenuItem(
-                        icon: Icons.bar_chart_rounded,
-                        label: 'Volume',
-                        isActive: showVolume,
-                        style: style,
-                        onTap: onToggleVolume,
+                        icon: Icons.bar_chart_rounded, label: 'Volume',
+                        isActive: showVolume, style: style, onTap: onToggleVolume,
                       ),
                       _MenuItem(
-                        icon: Icons.grid_4x4_rounded,
-                        label: 'Grid',
-                        isActive: showGrid,
-                        style: style,
-                        onTap: onToggleGrid,
+                        icon: Icons.grid_4x4_rounded, label: 'Grid',
+                        isActive: showGrid, style: style, onTap: onToggleGrid,
                       ),
                       _MenuItem(
-                        icon: Icons.control_camera_rounded,
-                        label: 'Crosshair',
-                        isActive: showCrosshair &&
-                            !isFibonacciMode &&
-                            !isRiskRatioMode,
-                        style: style,
-                        onTap: onToggleCrosshair,
+                        icon: Icons.control_camera_rounded, label: 'Crosshair',
+                        isActive: showCrosshair && !isFibonacciMode && !isRiskRatioMode,
+                        style: style, onTap: onToggleCrosshair,
                       ),
                       _MenuItem(
-                        icon: Icons.show_chart_rounded,
-                        label: 'Fibonacci',
-                        isActive: isFibonacciMode,
-                        style: style,
-                        onTap: onToggleFibonacci,
+                        icon: Icons.show_chart_rounded, label: 'Fibonacci',
+                        isActive: isFibonacciMode, style: style, onTap: onToggleFibonacci,
                       ),
                       _MenuItem(
                         icon: riskRatioMode == RiskRatioMode.buy
@@ -363,11 +337,8 @@ class _OverlayMenu extends StatelessWidget {
                       Divider(color: style.gridColor, height: 12),
 
                       _MenuItem(
-                        icon:     Icons.palette_outlined,
-                        label:    'Style Settings',
-                        isActive: false,
-                        style:    style,
-                        onTap:    onSettings,
+                        icon: Icons.palette_outlined, label: 'Style Settings',
+                        isActive: false, style: style, onTap: onSettings,
                       ),
                       const SizedBox(height: 2),
                     ],
@@ -383,7 +354,7 @@ class _OverlayMenu extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// Tombol di bottom bar
+// Tombol bottom bar
 // ─────────────────────────────────────────────
 class _BarButton extends StatelessWidget {
   final IconData         icon;
@@ -421,14 +392,10 @@ class _BarButton extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              size:  16,
-              color: isActive ? activeColor : style.textColor,
-            ),
+            Icon(icon, size: 16,
+                color: isActive ? activeColor : style.textColor),
             const SizedBox(width: 6),
-            Text(
-              label,
+            Text(label,
               style: TextStyle(
                 color:      isActive ? activeColor : style.textColor,
                 fontSize:   12,
@@ -443,7 +410,7 @@ class _BarButton extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// Indikator tool aktif di tengah bottom bar
+// Active indicator
 // ─────────────────────────────────────────────
 class _ActiveIndicator extends StatelessWidget {
   final IconData         icon;
@@ -452,10 +419,8 @@ class _ActiveIndicator extends StatelessWidget {
   final bool             isBuy;
 
   const _ActiveIndicator({
-    required this.icon,
-    required this.label,
-    required this.style,
-    required this.isBuy,
+    required this.icon, required this.label,
+    required this.style, required this.isBuy,
   });
 
   @override
@@ -473,13 +438,10 @@ class _ActiveIndicator extends StatelessWidget {
         children: [
           Icon(icon, size: 13, color: color),
           const SizedBox(width: 5),
-          Text(
-            label,
+          Text(label,
             style: TextStyle(
-              color:         color,
-              fontSize:      11,
-              fontWeight:    FontWeight.w600,
-              letterSpacing: 0.2,
+              color: color, fontSize: 11,
+              fontWeight: FontWeight.w600, letterSpacing: 0.2,
             ),
           ),
         ],
@@ -489,7 +451,7 @@ class _ActiveIndicator extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// Item di dalam popup menu
+// Menu item popup
 // ─────────────────────────────────────────────
 class _MenuItem extends StatelessWidget {
   final IconData         icon;
@@ -501,13 +463,9 @@ class _MenuItem extends StatelessWidget {
   final Color?           activeColor;
 
   const _MenuItem({
-    required this.icon,
-    required this.label,
-    required this.isActive,
-    required this.style,
-    required this.onTap,
-    this.onLongPress,
-    this.activeColor,
+    required this.icon, required this.label,
+    required this.isActive, required this.style, required this.onTap,
+    this.onLongPress, this.activeColor,
   });
 
   @override
@@ -529,15 +487,11 @@ class _MenuItem extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(
-              icon,
-              size:  18,
-              color: isActive ? color : style.textColor.withOpacity(0.7),
-            ),
+            Icon(icon, size: 18,
+                color: isActive ? color : style.textColor.withOpacity(0.7)),
             const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                label,
+              child: Text(label,
                 style: TextStyle(
                   color:      isActive ? color : style.textColor,
                   fontSize:   13,
@@ -545,8 +499,7 @@ class _MenuItem extends StatelessWidget {
                 ),
               ),
             ),
-            if (isActive)
-              Icon(Icons.check_rounded, color: color, size: 16),
+            if (isActive) Icon(Icons.check_rounded, color: color, size: 16),
           ],
         ),
       ),

@@ -1,0 +1,47 @@
+{
+  "generated_at": "2026-03-23T05:46:47.507308+00:00",
+  "total": 2,
+  "owner": "EXXE News",
+  "articles": [
+    {
+      "_id": null,
+      "Title": "MacBook Pro Baru: Bukan OLED yang Bikin Penasaran, Tapi Ada yang Lebih Gila!",
+      "Date": "2026-03-23T05:46:26.697432+00:00",
+      "Image": null,
+      "Description": "Apple siap rilis MacBook Pro terbaru! Desain ulang total sejak 2021, tapi bukan cuma OLED yang bikin editor EXXE News heboh. Ada apa lagi, ya?",
+      "Source": "9to5mac",
+      "Images_news": null,
+      "Images_news_2": null,
+      "Images_link": null,
+      "Body": "Halo gengs EXXE News! Siap-",
+      "Domain": "technology",
+      "Original_Title": "This rumored MacBook Pro upgrade has me excited for the overhaul, and it isn’t OLED",
+      "Original_Link": "https://9to5mac.com/2026/03/22/this-rumored-macbook-pro-upgrade-has-me-excited-for-the-overhaul-and-it-isnt-oled/",
+      "Original_Published": "2026-03-22 17:41:26",
+      "Sentiment": "optimis",
+      "Confidence": 0.95,
+      "Score": 1.0,
+      "Owner": "EXXE News"
+    },
+    {
+      "_id": null,
+      "Title": "Pensiunan Wajib Tahu! 3 Aturan Social Security Ini Berubah, Jangan Sampai Boncos!",
+      "Date": "2026-03-23T05:46:40.448376+00:00",
+      "Image": null,
+      "Description": "Pensiunan, merapat! Ada 3 aturan Social Security baru yang mulai berlaku. Kalau kamu nggak perhatiin, duit pensiunmu bisa berkurang lho. Wajib tahu sebelum April 2026!",
+      "Source": "fool",
+      "Images_news": null,
+      "Images_news_2": null,
+      "Images_link": null,
+      "Body": "JUDUL: Pensiunan Wajib Tahu! 3 Aturan Social Security Ini Berubah, Jangan Sampai Boncos!\nDESKRIPSI: Pensiunan, merapat! Ada 3 aturan Social Security baru yang mulai berlaku. Kalau kamu nggak perhatiin, duit pensiunmu bisa berkurang lho. Wajib tahu sebelum April 2026!",
+      "Domain": "economy",
+      "Original_Title": "All Retirees Need to Know These 3 Social Security Rule Changes Before April 2026",
+      "Original_Link": "https://www.fool.com/retirement/2026/03/22/all-retirees-need-to-know-these-3-social-security/",
+      "Original_Published": "2026-03-22 17:45:00",
+      "Sentiment": "negatif",
+      "Confidence": 0.65,
+      "Score": -0.5,
+      "Owner": "EXXE News"
+    }
+  ]
+}

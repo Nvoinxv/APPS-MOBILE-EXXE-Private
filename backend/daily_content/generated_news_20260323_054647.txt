@@ -1,0 +1,34 @@
+EXXE News — Daily Report
+Generated : 2026-03-23 05:46:47
+Total     : 2 artikel
+======================================================================
+
+[1] MacBook Pro Baru: Bukan OLED yang Bikin Penasaran, Tapi Ada yang Lebih Gila!
+──────────────────────────────────────────────────────────────────────
+📋 Apple siap rilis MacBook Pro terbaru! Desain ulang total sejak 2021, tapi bukan cuma OLED yang bikin editor EXXE News heboh. Ada apa lagi, ya?
+
+Halo gengs EXXE News! Siap-
+
+Sumber    : 9to5mac
+Tanggal   : 2026-03-22 17:41:26
+Link      : https://9to5mac.com/2026/03/22/this-rumored-macbook-pro-upgrade-has-me-excited-for-the-overhaul-and-it-isnt-oled/
+Sentiment : OPTIMIS  (conf=0.95  score=1.00)
+Owner     : EXXE News
+
+======================================================================
+
+[2] Pensiunan Wajib Tahu! 3 Aturan Social Security Ini Berubah, Jangan Sampai Boncos!
+──────────────────────────────────────────────────────────────────────
+📋 Pensiunan, merapat! Ada 3 aturan Social Security baru yang mulai berlaku. Kalau kamu nggak perhatiin, duit pensiunmu bisa berkurang lho. Wajib tahu sebelum April 2026!
+
+JUDUL: Pensiunan Wajib Tahu! 3 Aturan Social Security Ini Berubah, Jangan Sampai Boncos!
+DESKRIPSI: Pensiunan, merapat! Ada 3 aturan Social Security baru yang mulai berlaku. Kalau kamu nggak perhatiin, duit pensiunmu bisa berkurang lho. Wajib tahu sebelum April 2026!
+
+Sumber    : fool
+Tanggal   : 2026-03-22 17:45:00
+Link      : https://www.fool.com/retirement/2026/03/22/all-retirees-need-to-know-these-3-social-security/
+Sentiment : NEGATIF  (conf=0.65  score=-0.50)
+Owner     : EXXE News
+
+======================================================================
+

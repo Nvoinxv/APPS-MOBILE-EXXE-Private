@@ -1,0 +1,47 @@
+EXXE News — Daily Report
+Generated : 2026-03-23 05:32:33
+Total     : 3 artikel
+======================================================================
+
+[1] Cuba Akhirnya Ngaku: Tahanan Politik Gak Dilibatkan di Negosiasi AS!
+──────────────────────────────────────────────────────────────────────
+📋 Pemerintah Kuba akhirnya blak-blakan! Tahanan politik mereka ternyata gak akan jadi topik di meja negosiasi bareng AS. Kenapa ya?
+
+Guys, ada kabar lumayan bikin geger nih dari Kuba! Pemerintah mereka, lewat
+
+Sumber    : cubaheadlines
+Tanggal   : 2026-03-22 17:30:31
+Link      : https://www.cubaheadlines.com/articles/323736
+Sentiment : NEGATIF  (conf=0.85  score=-0.50)
+Owner     : EXXE News
+
+======================================================================
+
+[2] Menteri Minta CM Saini 'Pulang Kampung' ke Gurugram: Ada Apa Nih?
+──────────────────────────────────────────────────────────────────────
+📋 Drama politik Haryana memanas! Seorang menteri desak CM Nayab Singh Saini maju dari Gurugram. Ini demi aspirasi Ahirwal punya CM lokal, lho. Kira-kira gimana respon Pak CM?
+
+Guys, ada update
+
+Sumber    : devdiscourse
+Tanggal   : 2026-03-22 17:30:53
+Link      : https://www.devdiscourse.com/article/politics/3846616-ahirwals-aspiration-a-cm-from-gurugram
+Sentiment : NETRAL  (conf=0.65  score=0.00)
+Owner     : EXXE News
+
+======================================================================
+
+[3] Victoria Gaspol: Pajak Gaji Kecil Dipangkas, Dompet Pekerja Auto Full!
+──────────────────────────────────────────────────────────────────────
+📋 Ide menarik nih! Potong pajak penghasilan buat pekerja bergaji rendah di Victoria bisa jadi solusi biar dompet mereka nggak cekak. Yuk, intip kenapa ide ini penting!
+
+Hidup di zaman sekarang itu rasanya makin berat,
+
+Sumber    : vancouverislandfreedaily
+Tanggal   : 2026-03-22 17:30:00
+Link      : https://vancouverislandfreedaily.com/2026/03/22/letter-cutting-income-tax-on-low-wage-jobs-would-help-victoria-workers/
+Sentiment : POSITIF  (conf=0.85  score=0.50)
+Owner     : EXXE News
+
+======================================================================
+

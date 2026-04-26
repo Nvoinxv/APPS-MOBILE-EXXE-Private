@@ -1,353 +1,1078 @@
+// =============================================================================
+// style_settings_panel.dart
+// Path: frontend/lib/dialogs/style_settings_panel.dart
+//
+// Full custom style panel — preset, color picker, opacity slider,
+// background mode (solid/gradient/image+url), candle style, grid style.
+//
+// Dependencies:
+//   color_picker.dart   → FullColorPicker  (RGB/HSV picker)
+//   chart_style.dart    → ChartStyleState, ChartStylePreset, etc.
+//   candle_normal.dart  → CandleBodyStyle
+// =============================================================================
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../candle/candle_normal.dart';
+import 'chart_style.dart';
+import 'color_picker.dart'; // ← NEW
 
-/// Bottom sheet untuk mengatur style/theme chart
-/// 
-/// Memungkinkan user untuk memilih dari preset themes seperti:
-/// - TradingView (default professional theme)
-/// - Dark (simple dark theme)
-/// - Light (bright theme untuk siang hari)
-/// - Blue (alternative dark blue theme)
-class StyleSettingsSheet extends StatefulWidget {
-  final CandlestickStyle currentStyle;
-  final Function(CandlestickStyle) onStyleChanged;
-  
-  const StyleSettingsSheet({
-    Key? key,
-    required this.currentStyle,
-    required this.onStyleChanged,
-  }) : super(key: key);
-
-  @override
-  State<StyleSettingsSheet> createState() => _StyleSettingsSheetState();
+class StyleSettingsPanel {
+  static void show(
+    BuildContext context, {
+    required ChartStyleState currentStyle,
+    required void Function(ChartStyleState) onChanged,
+  }) {
+    showModalBottomSheet<void>(
+      context:            context,
+      isScrollControlled: true,
+      backgroundColor:    Colors.transparent,
+      barrierColor:       Colors.black.withOpacity(0.6),
+      builder: (_) => _StylePanelSheet(initial: currentStyle, onChanged: onChanged),
+    );
+  }
 }
 
-class _StyleSettingsSheetState extends State<StyleSettingsSheet> {
-  late CandlestickStyle style;
-  
+// ===========================================================================
+// Sheet widget
+// ===========================================================================
+
+class _StylePanelSheet extends StatefulWidget {
+  final ChartStyleState                initial;
+  final void Function(ChartStyleState) onChanged;
+  const _StylePanelSheet({required this.initial, required this.onChanged});
+
+  @override
+  State<_StylePanelSheet> createState() => _StylePanelSheetState();
+}
+
+class _StylePanelSheetState extends State<_StylePanelSheet>
+    with SingleTickerProviderStateMixin {
+
+  late ChartStyleState _style;
+  late TabController   _tab;
+
+  static const _bg     = Color(0xFF0E1117);
+  static const _border = Color(0xFF1E2333);
+  static const _muted  = Color(0xFF6B7280);
+
   @override
   void initState() {
     super.initState();
-    style = widget.currentStyle;
+    _style = widget.initial;
+    _tab   = TabController(length: 4, vsync: this);
   }
-  
+
+  @override
+  void dispose() {
+    _tab.dispose();
+    super.dispose();
+  }
+
+  void _update(ChartStyleState next) {
+    setState(() => _style = next);
+    widget.onChanged(next);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final screenH = MediaQuery.of(context).size.height;
     return Container(
-      padding: const EdgeInsets.all(16),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildHeader(),
-            const SizedBox(height: 20),
-            _buildThemesSection(),
-            const SizedBox(height: 20),
-          ],
-        ),
+      height:     screenH * 0.82,
+      decoration: const BoxDecoration(
+        color:        _bg,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        border:       Border(top: BorderSide(color: _border)),
       ),
-    );
-  }
-  
-  /// Header dengan title dan close button
-  Widget _buildHeader() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          'Chart Style Settings',
-          style: TextStyle(
-            color: style.textColor,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        IconButton(
-          icon: Icon(Icons.close, color: style.textColor),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ],
-    );
-  }
-  
-  /// Section untuk preset themes
-  Widget _buildThemesSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Preset Themes',
-          style: TextStyle(
-            color: style.textColor,
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _buildThemeButton('TradingView', StyleThemes.tradingView()),
-            _buildThemeButton('Dark', StyleThemes.dark()),
-            _buildThemeButton('Light', StyleThemes.light()),
-            _buildThemeButton('Blue', StyleThemes.blue()),
-            _buildThemeButton('Neon', StyleThemes.neonFuturistic()),
-          ],
-        ),
-      ],
-    );
-  }
-  
-  /// Button untuk memilih theme
-  Widget _buildThemeButton(String label, CandlestickStyle theme) {
-    final isCurrentTheme = _isCurrentTheme(theme);
-    
-    return ElevatedButton(
-      onPressed: () {
-        setState(() {
-          style = theme;
-          widget.onStyleChanged(theme);
-        });
-      },
-      style: ElevatedButton.styleFrom(
-        backgroundColor: theme.backgroundColor,
-        foregroundColor: theme.textColor,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-          side: isCurrentTheme
-              ? BorderSide(
-                  color: theme.bullishColor,
-                  width: 2,
-                )
-              : BorderSide.none,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Column(
         children: [
-          // Color preview circles
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildColorCircle(theme.bullishColor),
-              const SizedBox(width: 4),
-              _buildColorCircle(theme.bearishColor),
-            ],
-          ),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: TextStyle(
-              fontWeight: isCurrentTheme ? FontWeight.bold : FontWeight.normal,
+          _buildHandle(),
+          _buildHeader(),
+          _buildTabBar(),
+          Expanded(
+            child: TabBarView(
+              controller: _tab,
+              children: [
+                _PresetsTab(style: _style, onUpdate: _update),
+                _CandleTab(style: _style, onUpdate: _update),
+                _BackgroundTab(style: _style, onUpdate: _update),
+                _GridTab(style: _style, onUpdate: _update),
+              ],
             ),
           ),
-          if (isCurrentTheme) ...[
-            const SizedBox(width: 8),
-            Icon(
-              Icons.check_circle,
-              size: 16,
-              color: theme.bullishColor,
-            ),
-          ],
+          _buildPreviewBar(),
         ],
       ),
     );
   }
-  
-  /// Build color preview circle
-  Widget _buildColorCircle(Color color) {
-    return Container(
-      width: 12,
-      height: 12,
+
+  Widget _buildHandle() => Padding(
+    padding: const EdgeInsets.only(top: 12, bottom: 4),
+    child: Container(
+      width: 36, height: 4,
       decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: Colors.white.withOpacity(0.3),
-          width: 1,
+        color: _muted.withOpacity(0.4), borderRadius: BorderRadius.circular(2),
+      ),
+    ),
+  );
+
+  Widget _buildHeader() => Padding(
+    padding: const EdgeInsets.fromLTRB(20, 8, 12, 0),
+    child: Row(
+      children: [
+        const Text('CHART STYLE', style: TextStyle(
+          color: Color(0xFFE8EAF0), fontSize: 13,
+          fontWeight: FontWeight.w700, letterSpacing: 1.8,
+        )),
+        const Spacer(),
+        TextButton(
+          onPressed: () => _update(const ChartStyleState()),
+          child: const Text('Reset', style: TextStyle(color: _muted, fontSize: 12)),
         ),
+        IconButton(
+          icon: const Icon(Icons.close_rounded, color: _muted, size: 20),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ],
+    ),
+  );
+
+  Widget _buildTabBar() => Container(
+    margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+    decoration: BoxDecoration(
+      color: _border, borderRadius: BorderRadius.circular(10),
+    ),
+    child: TabBar(
+      controller:           _tab,
+      indicator:            BoxDecoration(
+        color: const Color(0xFF1E2740), borderRadius: BorderRadius.circular(8),
+      ),
+      indicatorSize:        TabBarIndicatorSize.tab,
+      dividerColor:         Colors.transparent,
+      labelColor:           const Color(0xFFE8EAF0),
+      unselectedLabelColor: _muted,
+      labelStyle:           const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+      unselectedLabelStyle: const TextStyle(fontSize: 11),
+      padding:              const EdgeInsets.all(3),
+      tabs: const [
+        Tab(text: 'Preset'), Tab(text: 'Candle'),
+        Tab(text: 'Background'), Tab(text: 'Grid'),
+      ],
+    ),
+  );
+
+  Widget _buildPreviewBar() => Container(
+    height:  64,
+    padding: const EdgeInsets.symmetric(horizontal: 20),
+    decoration: const BoxDecoration(
+      border: Border(top: BorderSide(color: _border)),
+    ),
+    child: Row(
+      children: [
+        _MiniCandlePreview(style: _style),
+        const SizedBox(width: 16),
+        Expanded(child: Text('Preview', style: TextStyle(color: _muted, fontSize: 11))),
+        GestureDetector(
+          onTap: () => Navigator.of(context).pop(),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            decoration: BoxDecoration(
+              color: _style.bullishColor, borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Text('Apply', style: TextStyle(
+              color: Colors.black, fontSize: 13, fontWeight: FontWeight.w700,
+            )),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+// ===========================================================================
+// Tab 1 — Preset
+// ===========================================================================
+
+class _PresetsTab extends StatelessWidget {
+  final ChartStyleState               style;
+  final void Function(ChartStyleState) onUpdate;
+  const _PresetsTab({required this.style, required this.onUpdate});
+
+  @override
+  Widget build(BuildContext context) {
+    final presets = ChartStylePreset.all();
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _SectionLabel('THEME PRESETS'),
+        const SizedBox(height: 12),
+        GridView.builder(
+          shrinkWrap: true,
+          physics:    const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3, mainAxisSpacing: 8,
+            crossAxisSpacing: 8, childAspectRatio: 1.3,
+          ),
+          itemCount: presets.length,
+          itemBuilder: (_, i) {
+            final p        = presets[i];
+            final isActive = _matchesPreset(p.state);
+            return GestureDetector(
+              onTap: () => onUpdate(p.state),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                decoration: BoxDecoration(
+                  color:        p.state.backgroundColor,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: isActive ? p.state.bullishColor : const Color(0xFF1E2333),
+                    width: isActive ? 2.0 : 1.0,
+                  ),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [_dot(p.state.bullishColor), const SizedBox(width: 4), _dot(p.state.bearishColor)],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(p.name, style: TextStyle(
+                      color:      p.state.textColor,
+                      fontSize:   11,
+                      fontWeight: isActive ? FontWeight.w700 : FontWeight.w400,
+                    )),
+                    if (isActive)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Icon(Icons.check_circle_rounded, size: 12, color: p.state.bullishColor),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  bool _matchesPreset(ChartStyleState p) =>
+      p.bullishColor == style.bullishColor &&
+      p.bearishColor == style.bearishColor &&
+      p.backgroundColor == style.backgroundColor;
+
+  Widget _dot(Color c) => Container(
+    width: 10, height: 10,
+    decoration: BoxDecoration(color: c, shape: BoxShape.circle),
+  );
+}
+
+// ===========================================================================
+// Tab 2 — Candle
+// ===========================================================================
+
+class _CandleTab extends StatelessWidget {
+  final ChartStyleState               style;
+  final void Function(ChartStyleState) onUpdate;
+  const _CandleTab({required this.style, required this.onUpdate});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _SectionLabel('BULLISH COLOR'),
+        const SizedBox(height: 10),
+        _FullColorRow(
+          current:  style.bullishColor,
+          onPicked: (c) => onUpdate(style.copyWith(bullishColor: c)),
+        ),
+
+        const SizedBox(height: 20),
+        _SectionLabel('BEARISH COLOR'),
+        const SizedBox(height: 10),
+        _FullColorRow(
+          current:  style.bearishColor,
+          onPicked: (c) => onUpdate(style.copyWith(bearishColor: c)),
+        ),
+
+        const SizedBox(height: 20),
+        _SectionLabel('CANDLE OPACITY'),
+        _OpacitySlider(
+          value:     style.candleOpacity,
+          color:     style.bullishColor,
+          onChanged: (v) => onUpdate(style.copyWith(candleOpacity: v)),
+        ),
+
+        const SizedBox(height: 20),
+        _SectionLabel('BODY STYLE'),
+        const SizedBox(height: 10),
+        _SegmentedRow<CandleBodyStyle>(
+          options: const [
+            _SegmentOption(label: 'Filled', value: CandleBodyStyle.filled),
+            _SegmentOption(label: 'Hollow', value: CandleBodyStyle.hollow),
+          ],
+          selected:    style.bodyStyle,
+          accentColor: style.bullishColor,
+          onSelected:  (v) => onUpdate(style.copyWith(bodyStyle: v)),
+        ),
+
+        const SizedBox(height: 20),
+        _SectionLabel('WICK'),
+        _SwitchRow(
+          label:     'Show Wick',
+          value:     style.showWick,
+          color:     style.bullishColor,
+          onChanged: (v) => onUpdate(style.copyWith(showWick: v)),
+        ),
+        if (style.showWick) ...[
+          const SizedBox(height: 8),
+          _OpacitySlider(
+            label:     'Wick Opacity',
+            value:     style.wickOpacity,
+            color:     style.bullishColor,
+            onChanged: (v) => onUpdate(style.copyWith(wickOpacity: v)),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+// ===========================================================================
+// Tab 3 — Background  ← UPDATED: full color picker + image/URL upload
+// ===========================================================================
+
+class _BackgroundTab extends StatefulWidget {
+  final ChartStyleState               style;
+  final void Function(ChartStyleState) onUpdate;
+  const _BackgroundTab({required this.style, required this.onUpdate});
+
+  @override
+  State<_BackgroundTab> createState() => _BackgroundTabState();
+}
+
+class _BackgroundTabState extends State<_BackgroundTab> {
+  final _urlCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _urlCtrl.text = widget.style.backgroundImagePath ?? '';
+  }
+
+  @override
+  void dispose() {
+    _urlCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final style = widget.style;
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+
+        // ── Background Mode ────────────────────────────────────────────────
+        _SectionLabel('BACKGROUND MODE'),
+        const SizedBox(height: 10),
+        _SegmentedRow<ChartBackgroundMode>(
+          options: const [
+            _SegmentOption(label: 'Solid',    value: ChartBackgroundMode.solidColor),
+            _SegmentOption(label: 'Gradient', value: ChartBackgroundMode.gradient),
+            _SegmentOption(label: 'Image',    value: ChartBackgroundMode.image),
+          ],
+          selected:    style.backgroundMode,
+          accentColor: style.bullishColor,
+          onSelected: (v) => widget.onUpdate(style.copyWith(backgroundMode: v)),
+        ),
+        const SizedBox(height: 20),
+
+        // ── Solid Color ────────────────────────────────────────────────────
+        if (style.backgroundMode == ChartBackgroundMode.solidColor) ...[
+          _SectionLabel('BACKGROUND COLOR'),
+          const SizedBox(height: 10),
+          _FullColorRow(
+            current:  style.backgroundColor,
+            onPicked: (c) => widget.onUpdate(style.copyWith(backgroundColor: c)),
+          ),
+          const SizedBox(height: 20),
+        ],
+
+        // ── Gradient ───────────────────────────────────────────────────────
+        if (style.backgroundMode == ChartBackgroundMode.gradient) ...[
+          _SectionLabel('GRADIENT START'),
+          const SizedBox(height: 10),
+          _FullColorRow(
+            current:  style.backgroundColor,
+            onPicked: (c) => widget.onUpdate(style.copyWith(backgroundColor: c)),
+          ),
+          const SizedBox(height: 16),
+          _SectionLabel('GRADIENT END'),
+          const SizedBox(height: 10),
+          _FullColorRow(
+            current:  style.backgroundGradientEnd,
+            onPicked: (c) => widget.onUpdate(style.copyWith(backgroundGradientEnd: c)),
+          ),
+          const SizedBox(height: 10),
+          // Live gradient preview
+          Container(
+            height: 44,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [style.backgroundColor, style.backgroundGradientEnd],
+                begin:  Alignment.centerLeft,
+                end:    Alignment.centerRight,
+              ),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFF1E2333)),
+            ),
+          ),
+          const SizedBox(height: 20),
+        ],
+
+        // ── Image / URL ────────────────────────────────────────────────────
+        if (style.backgroundMode == ChartBackgroundMode.image) ...[
+          _SectionLabel('BACKGROUND IMAGE'),
+          const SizedBox(height: 10),
+
+          // Preview box
+          if (style.backgroundImagePath != null &&
+              style.backgroundImagePath!.isNotEmpty)
+            _ImagePreview(path: style.backgroundImagePath!),
+
+          const SizedBox(height: 10),
+
+          // URL input
+          _SectionLabel('IMAGE URL (from internet)'),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _urlCtrl,
+                  style:      const TextStyle(color: Color(0xFFE8EAF0), fontSize: 12),
+                  decoration: InputDecoration(
+                    hintText:  'https://example.com/bg.png',
+                    hintStyle: const TextStyle(color: Color(0xFF6B7280), fontSize: 11),
+                    filled:    true,
+                    fillColor: const Color(0xFF161B27),
+                    isDense:   true,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    prefixIcon: const Icon(Icons.link_rounded,
+                        color: Color(0xFF6B7280), size: 16),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide:   const BorderSide(color: Color(0xFF1E2333)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide:   const BorderSide(color: Color(0xFF1E2333)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(color: style.bullishColor),
+                    ),
+                  ),
+                  onSubmitted: (v) => widget.onUpdate(
+                    style.copyWith(backgroundImagePath: v.trim()),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () {
+                  final url = _urlCtrl.text.trim();
+                  if (url.isNotEmpty) {
+                    widget.onUpdate(style.copyWith(backgroundImagePath: url));
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color:        style.bullishColor.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: style.bullishColor),
+                  ),
+                  child: Icon(Icons.check_rounded,
+                      color: style.bullishColor, size: 18),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Paste URL gambar dari internet, atau path asset lokal',
+            style: TextStyle(color: Color(0xFF6B7280), fontSize: 10),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Upload from device (asset path helper)
+          _SectionLabel('LOCAL ASSET PATH'),
+          const SizedBox(height: 6),
+          _AssetPathInput(
+            current:    style.backgroundImagePath,
+            accentColor: style.bullishColor,
+            onPicked:   (path) => widget.onUpdate(
+              style.copyWith(backgroundImagePath: path),
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
+          // Clear image button
+          if (style.backgroundImagePath != null &&
+              style.backgroundImagePath!.isNotEmpty)
+            GestureDetector(
+              onTap: () {
+                _urlCtrl.clear();
+                widget.onUpdate(style.copyWith(backgroundImagePath: null));
+              },
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color:        const Color(0xFF1E2333),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFF3A4055)),
+                ),
+                child: const Center(
+                  child: Text('Clear Image',
+                      style: TextStyle(color: Color(0xFF6B7280), fontSize: 12)),
+                ),
+              ),
+            ),
+
+          const SizedBox(height: 20),
+        ],
+
+        // ── Background Opacity (all modes) ─────────────────────────────────
+        _SectionLabel('BACKGROUND OPACITY'),
+        _OpacitySlider(
+          value:     style.backgroundOpacity,
+          color:     style.bullishColor,
+          onChanged: (v) => widget.onUpdate(style.copyWith(backgroundOpacity: v)),
+        ),
+
+        const SizedBox(height: 20),
+
+        // ── Text color ─────────────────────────────────────────────────────
+        _SectionLabel('TEXT COLOR'),
+        const SizedBox(height: 10),
+        _FullColorRow(
+          current:  style.textColor,
+          onPicked: (c) => widget.onUpdate(style.copyWith(textColor: c)),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Image preview widget ──────────────────────────────────────────────────────
+
+class _ImagePreview extends StatelessWidget {
+  final String path;
+  const _ImagePreview({required this.path});
+
+  bool get _isUrl => path.startsWith('http://') || path.startsWith('https://');
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        height: 80,
+        decoration: BoxDecoration(
+          color:        const Color(0xFF161B27),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFF1E2333)),
+        ),
+        child: _isUrl
+            ? Image.network(
+                path,
+                fit:         BoxFit.cover,
+                errorBuilder: (_, __, ___) => const Center(
+                  child: Icon(Icons.broken_image_rounded,
+                      color: Color(0xFF6B7280), size: 28),
+                ),
+                loadingBuilder: (_, child, progress) {
+                  if (progress == null) return child;
+                  return const Center(
+                    child: SizedBox(
+                      width: 20, height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Color(0xFF00D09C),
+                      ),
+                    ),
+                  );
+                },
+              )
+            : Image.asset(
+                path,
+                fit:         BoxFit.cover,
+                errorBuilder: (_, __, ___) => const Center(
+                  child: Icon(Icons.image_not_supported_rounded,
+                      color: Color(0xFF6B7280), size: 28),
+                ),
+              ),
       ),
     );
   }
-  
-  /// Check if theme is currently selected
-  bool _isCurrentTheme(CandlestickStyle theme) {
-    return style.bullishColor == theme.bullishColor &&
-           style.bearishColor == theme.bearishColor &&
-           style.backgroundColor == theme.backgroundColor;
-  }
 }
 
-/// Class untuk menyimpan preset themes
-class StyleThemes {
-  StyleThemes._();
-  
-  /// TradingView classic theme
-  static CandlestickStyle tradingView() {
-    return CandlestickStyle(
-      bullishColor: const Color(0xFF26A69A),
-      bearishColor: const Color(0xFFEF5350),
-      backgroundColor: const Color(0xFF1E222D),
-      gridColor: const Color(0xFF2A2E39),
-      textColor: const Color(0xFFB2B5BE),
-      crosshairColor: const Color(0xFF26A69A).withOpacity(0.3),
-      selectedColor: const Color(0xFF26A69A),
-    );
-  }
-  
-  /// Simple dark theme
-  static CandlestickStyle dark() {
-    return CandlestickStyle(
-      bullishColor: Colors.green,
-      bearishColor: Colors.red,
-      backgroundColor: Colors.black,
-      gridColor: const Color(0xFF2D2D2D),
-      textColor: Colors.white70,
-      crosshairColor: Colors.green.withOpacity(0.3),
-      selectedColor: Colors.green,
-    );
-  }
-  
-  /// Light theme untuk siang hari
-  static CandlestickStyle light() {
-    return CandlestickStyle(
-      bullishColor: const Color(0xFF26A69A),
-      bearishColor: const Color(0xFFEF5350),
-      backgroundColor: Colors.white,
-      gridColor: const Color(0xFFE0E0E0),
-      textColor: Colors.black87,
-      crosshairColor: const Color(0xFF26A69A).withOpacity(0.3),
-      selectedColor: const Color(0xFF26A69A),
-    );
-  }
-  
-  /// Blue theme
-  static CandlestickStyle blue() {
-    return CandlestickStyle(
-      bullishColor: Colors.blue,
-      bearishColor: Colors.orange,
-      backgroundColor: const Color(0xFF0D1B2A),
-      gridColor: const Color(0xFF1B263B),
-      textColor: const Color(0xFFE0E1DD),
-      crosshairColor: Colors.blue.withOpacity(0.3),
-      selectedColor: Colors.blue,
-    );
-  }
-  
-  /// Neon futuristic theme (default)
-  static CandlestickStyle neonFuturistic() {
-    return CandlestickStyle(
-      bullishColor: const Color(0xFF00FF88), // Neon green
-      bearishColor: const Color(0xFFFF0066), // Neon pink/red
-      backgroundColor: const Color(0xFF0A0E17), // Deep space black
-      gridColor: const Color(0xFF1A2332), // Dark blue-gray
-      textColor: const Color(0xFF8B93A7), // Muted gray-blue
-      crosshairColor: const Color(0xFF00FF88).withOpacity(0.3),
-      selectedColor: const Color(0xFF00FFFF), // Cyan highlight
-    );
-  }
-  
-  /// Purple haze theme
-  static CandlestickStyle purpleHaze() {
-    return CandlestickStyle(
-      bullishColor: const Color(0xFF9D4EDD),
-      bearishColor: const Color(0xFFFF006E),
-      backgroundColor: const Color(0xFF10002B),
-      gridColor: const Color(0xFF240046),
-      textColor: const Color(0xFFC77DFF),
-      crosshairColor: const Color(0xFF9D4EDD).withOpacity(0.3),
-      selectedColor: const Color(0xFF9D4EDD),
-    );
-  }
-  
-  /// Matrix green theme
-  static CandlestickStyle matrix() {
-    return CandlestickStyle(
-      bullishColor: const Color(0xFF00FF41),
-      bearishColor: const Color(0xFFFF0040),
-      backgroundColor: const Color(0xFF0D0208),
-      gridColor: const Color(0xFF003B00),
-      textColor: const Color(0xFF008F11),
-      crosshairColor: const Color(0xFF00FF41).withOpacity(0.3),
-      selectedColor: const Color(0xFF00FF41),
-    );
-  }
-  
-  /// Ocean theme
-  static CandlestickStyle ocean() {
-    return CandlestickStyle(
-      bullishColor: const Color(0xFF06FFA5),
-      bearishColor: const Color(0xFFFF5F6D),
-      backgroundColor: const Color(0xFF011627),
-      gridColor: const Color(0xFF1F4788),
-      textColor: const Color(0xFFB8C5D6),
-      crosshairColor: const Color(0xFF06FFA5).withOpacity(0.3),
-      selectedColor: const Color(0xFF06FFA5),
-    );
-  }
-  
-  /// Sunset theme
-  static CandlestickStyle sunset() {
-    return CandlestickStyle(
-      bullishColor: const Color(0xFFFFC837),
-      bearishColor: const Color(0xFFFF6B35),
-      backgroundColor: const Color(0xFF1A1A2E),
-      gridColor: const Color(0xFF16213E),
-      textColor: const Color(0xFFEEEEEE),
-      crosshairColor: const Color(0xFFFFC837).withOpacity(0.3),
-      selectedColor: const Color(0xFFFFC837),
-    );
-  }
-  
-  /// Get all available themes
-  static List<ThemeOption> getAllThemes() {
-    return [
-      ThemeOption(name: 'Neon', theme: neonFuturistic()),
-      ThemeOption(name: 'TradingView', theme: tradingView()),
-      ThemeOption(name: 'Dark', theme: dark()),
-      ThemeOption(name: 'Light', theme: light()),
-      ThemeOption(name: 'Blue', theme: blue()),
-      ThemeOption(name: 'Purple', theme: purpleHaze()),
-      ThemeOption(name: 'Matrix', theme: matrix()),
-      ThemeOption(name: 'Ocean', theme: ocean()),
-      ThemeOption(name: 'Sunset', theme: sunset()),
-    ];
-  }
-}
+// ── Asset path input ──────────────────────────────────────────────────────────
 
-/// Model untuk theme option
-class ThemeOption {
-  final String name;
-  final CandlestickStyle theme;
-  
-  const ThemeOption({
-    required this.name,
-    required this.theme,
+class _AssetPathInput extends StatefulWidget {
+  final String?               current;
+  final Color                 accentColor;
+  final void Function(String) onPicked;
+  const _AssetPathInput({
+    required this.current,
+    required this.accentColor,
+    required this.onPicked,
   });
+
+  @override
+  State<_AssetPathInput> createState() => _AssetPathInputState();
 }
 
-/// Extension untuk StyleSettingsSheet
-extension StyleSettingsSheetExtension on BuildContext {
-  /// Show style settings bottom sheet
-  void showStyleSettings({
-    required CandlestickStyle currentStyle,
-    required Function(CandlestickStyle) onStyleChanged,
-  }) {
-    showModalBottomSheet(
-      context: this,
-      backgroundColor: currentStyle.backgroundColor,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(16),
+class _AssetPathInputState extends State<_AssetPathInput> {
+  late TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    final path = widget.current ?? '';
+    final isUrl = path.startsWith('http');
+    _ctrl = TextEditingController(text: isUrl ? '' : path);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: _ctrl,
+            style:      const TextStyle(color: Color(0xFFE8EAF0), fontSize: 12),
+            decoration: InputDecoration(
+              hintText:  'assets/images/background.png',
+              hintStyle: const TextStyle(color: Color(0xFF6B7280), fontSize: 11),
+              filled:    true,
+              fillColor: const Color(0xFF161B27),
+              isDense:   true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              prefixIcon: const Icon(Icons.folder_open_rounded,
+                  color: Color(0xFF6B7280), size: 16),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide:   const BorderSide(color: Color(0xFF1E2333)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide:   const BorderSide(color: Color(0xFF1E2333)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide:   BorderSide(color: widget.accentColor),
+              ),
+            ),
+            onSubmitted: (v) {
+              if (v.trim().isNotEmpty) widget.onPicked(v.trim());
+            },
+          ),
         ),
-      ),
-      builder: (context) => StyleSettingsSheet(
-        currentStyle: currentStyle,
-        onStyleChanged: onStyleChanged,
-      ),
+        const SizedBox(width: 8),
+        GestureDetector(
+          onTap: () {
+            final p = _ctrl.text.trim();
+            if (p.isNotEmpty) widget.onPicked(p);
+          },
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color:        widget.accentColor.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: widget.accentColor),
+            ),
+            child: Icon(Icons.check_rounded, color: widget.accentColor, size: 18),
+          ),
+        ),
+      ],
     );
   }
+}
+
+// ===========================================================================
+// Tab 4 — Grid
+// ===========================================================================
+
+class _GridTab extends StatelessWidget {
+  final ChartStyleState               style;
+  final void Function(ChartStyleState) onUpdate;
+  const _GridTab({required this.style, required this.onUpdate});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _SectionLabel('GRID STYLE'),
+        const SizedBox(height: 10),
+        _SegmentedRow<GridStyle>(
+          options: const [
+            _SegmentOption(label: 'Lines', value: GridStyle.lines),
+            _SegmentOption(label: 'Dots',  value: GridStyle.dots),
+            _SegmentOption(label: 'None',  value: GridStyle.none),
+          ],
+          selected:    style.gridStyle,
+          accentColor: style.bullishColor,
+          onSelected: (v) => onUpdate(style.copyWith(gridStyle: v)),
+        ),
+
+        if (style.gridStyle != GridStyle.none) ...[
+          const SizedBox(height: 20),
+          _SectionLabel('GRID COLOR'),
+          const SizedBox(height: 10),
+          _FullColorRow(
+            current:  style.gridColor,
+            onPicked: (c) => onUpdate(style.copyWith(gridColor: c)),
+          ),
+          const SizedBox(height: 20),
+          _SectionLabel('GRID OPACITY'),
+          _OpacitySlider(
+            value:     style.gridOpacity,
+            color:     style.bullishColor,
+            onChanged: (v) => onUpdate(style.copyWith(gridOpacity: v)),
+          ),
+        ],
+
+        const SizedBox(height: 20),
+        _SectionLabel('CROSSHAIR COLOR'),
+        const SizedBox(height: 10),
+        _FullColorRow(
+          current:  style.crosshairColor,
+          onPicked: (c) => onUpdate(style.copyWith(crosshairColor: c)),
+        ),
+      ],
+    );
+  }
+}
+
+// ===========================================================================
+// Shared UI components
+// ===========================================================================
+
+class _SectionLabel extends StatelessWidget {
+  final String text;
+  const _SectionLabel(this.text);
+
+  @override
+  Widget build(BuildContext context) => Text(text, style: const TextStyle(
+    color: Color(0xFF6B7280), fontSize: 9.5,
+    fontWeight: FontWeight.w700, letterSpacing: 1.4,
+  ));
+}
+
+// ── FullColorRow — swatch strip + open full picker ────────────────────────────
+
+class _FullColorRow extends StatelessWidget {
+  final Color               current;
+  final void Function(Color) onPicked;
+
+  const _FullColorRow({required this.current, required this.onPicked});
+
+  // Quick swatch presets (rainbow range biar langsung pilih cepet)
+  static const _quickPresets = [
+    Color(0xFF00D09C), Color(0xFFFF4D6D), Color(0xFFFF0000),
+    Color(0xFFFF6600), Color(0xFFFFCC00), Color(0xFF00FF00),
+    Color(0xFF00CCFF), Color(0xFF0000FF), Color(0xFF9900FF),
+    Color(0xFFFF00FF), Color(0xFFFFFFFF), Color(0xFF000000),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        // Quick swatch horizontal scroll
+        Expanded(
+          child: SizedBox(
+            height: 36,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: _quickPresets.map((c) {
+                final isActive = current.value == c.value;
+                return GestureDetector(
+                  onTap: () => onPicked(c),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 120),
+                    width: 30, height: 30,
+                    margin: const EdgeInsets.only(right: 6),
+                    decoration: BoxDecoration(
+                      color: c,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isActive ? Colors.white : Colors.white.withOpacity(0.12),
+                        width: isActive ? 2.5 : 1.0,
+                      ),
+                      boxShadow: isActive
+                          ? [BoxShadow(color: c.withOpacity(0.5), blurRadius: 8)]
+                          : null,
+                    ),
+                    child: isActive
+                        ? Icon(Icons.check_rounded, size: 14,
+                            color: c.computeLuminance() > 0.4
+                                ? Colors.black : Colors.white)
+                        : null,
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+
+        // Open full picker button
+        GestureDetector(
+          onTap: () async {
+            final picked = await FullColorPicker.show(
+              context, initial: current,
+            );
+            if (picked != null) onPicked(picked);
+          },
+          child: Container(
+            width: 36, height: 36,
+            decoration: BoxDecoration(
+              color:        current,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white.withOpacity(0.2)),
+              boxShadow: [
+                BoxShadow(color: current.withOpacity(0.4), blurRadius: 6),
+              ],
+            ),
+            child: Icon(
+              Icons.colorize_rounded, size: 16,
+              color: current.computeLuminance() > 0.4 ? Colors.black : Colors.white,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Opacity Slider ────────────────────────────────────────────────────────────
+
+class _OpacitySlider extends StatelessWidget {
+  final String              label;
+  final double              value;
+  final Color               color;
+  final void Function(double) onChanged;
+
+  const _OpacitySlider({
+    this.label = 'Opacity',
+    required this.value,
+    required this.color,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      SizedBox(
+        width: 70,
+        child: Text(label, style: const TextStyle(color: Color(0xFF6B7280), fontSize: 11)),
+      ),
+      Expanded(
+        child: SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            activeTrackColor:   color,
+            inactiveTrackColor: color.withOpacity(0.15),
+            thumbColor:         color,
+            overlayColor:       color.withOpacity(0.12),
+            trackHeight:        3.0,
+            thumbShape:         const RoundSliderThumbShape(enabledThumbRadius: 7),
+          ),
+          child: Slider(value: value, min: 0, max: 1, onChanged: onChanged),
+        ),
+      ),
+      SizedBox(
+        width: 36,
+        child: Text('${(value * 100).round()}%',
+            style: const TextStyle(color: Color(0xFF6B7280), fontSize: 11),
+            textAlign: TextAlign.right),
+      ),
+    ],
+  );
+}
+
+// ── Switch Row ────────────────────────────────────────────────────────────────
+
+class _SwitchRow extends StatelessWidget {
+  final String             label;
+  final bool               value;
+  final Color              color;
+  final void Function(bool) onChanged;
+
+  const _SwitchRow({
+    required this.label, required this.value,
+    required this.color,  required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Expanded(child: Text(label,
+          style: const TextStyle(color: Color(0xFFB2B5BE), fontSize: 13))),
+      Switch(
+        value:              value,
+        onChanged:          onChanged,
+        activeColor:        color,
+        inactiveThumbColor: const Color(0xFF6B7280),
+        inactiveTrackColor: const Color(0xFF1E2333),
+      ),
+    ],
+  );
+}
+
+// ── Segmented Row ─────────────────────────────────────────────────────────────
+
+class _SegmentOption<T> {
+  final String label;
+  final T      value;
+  const _SegmentOption({required this.label, required this.value});
+}
+
+class _SegmentedRow<T> extends StatelessWidget {
+  final List<_SegmentOption<T>> options;
+  final T                       selected;
+  final Color                   accentColor;
+  final void Function(T)         onSelected;
+
+  const _SegmentedRow({
+    required this.options, required this.selected,
+    required this.accentColor, required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: options.map((opt) {
+      final isActive = opt.value == selected;
+      return Expanded(
+        child: GestureDetector(
+          onTap: () => onSelected(opt.value),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            margin:  const EdgeInsets.symmetric(horizontal: 3),
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+              color:        isActive
+                  ? accentColor.withOpacity(0.15)
+                  : const Color(0xFF161B27),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: isActive ? accentColor : const Color(0xFF1E2333),
+                width: isActive ? 1.5 : 1.0,
+              ),
+            ),
+            child: Text(
+              opt.label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color:      isActive ? accentColor : const Color(0xFF6B7280),
+                fontSize:   12,
+                fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
+              ),
+            ),
+          ),
+        ),
+      );
+    }).toList(),
+  );
+}
+
+// ── Mini Candle Preview ───────────────────────────────────────────────────────
+
+class _MiniCandlePreview extends StatelessWidget {
+  final ChartStyleState style;
+  const _MiniCandlePreview({required this.style});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width:  120, height: 40,
+    decoration: BoxDecoration(
+      color:        style.backgroundColor,
+      borderRadius: BorderRadius.circular(6),
+      border: Border.all(color: const Color(0xFF1E2333)),
+    ),
+    child: CustomPaint(painter: _CandlePreviewPainter(style: style)),
+  );
+}
+
+class _CandlePreviewPainter extends CustomPainter {
+  final ChartStyleState style;
+  const _CandlePreviewPainter({required this.style});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bullPaint = Paint()
+      ..color = style.bullishColor.withOpacity(style.candleOpacity)
+      ..style = style.bodyStyle == CandleBodyStyle.filled
+          ? PaintingStyle.fill
+          : PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+
+    final bearPaint = Paint()
+      ..color = style.bearishColor.withOpacity(style.candleOpacity)
+      ..style = style.bodyStyle == CandleBodyStyle.filled
+          ? PaintingStyle.fill
+          : PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+
+    final wickPaint = Paint()..strokeWidth = 1.0;
+
+    const data = [
+      (0.55, 0.80, 0.50, 0.85, true),
+      (0.50, 0.70, 0.45, 0.75, false),
+      (0.45, 0.65, 0.40, 0.70, true),
+      (0.30, 0.60, 0.25, 0.65, true),
+      (0.35, 0.55, 0.30, 0.60, false),
+    ];
+
+    final cw   = size.width / data.length;
+    final half = cw * 0.28;
+
+    for (var i = 0; i < data.length; i++) {
+      final (open, close, low, high, bull) = data[i];
+      final cx     = cw * i + cw / 2;
+      final openY  = size.height * open;
+      final closeY = size.height * close;
+      final lowY   = size.height * low;
+      final highY  = size.height * high;
+      final paint  = bull ? bullPaint : bearPaint;
+
+      if (style.showWick) {
+        wickPaint.color = (bull ? style.bullishColor : style.bearishColor)
+            .withOpacity(style.wickOpacity);
+        canvas.drawLine(Offset(cx, highY), Offset(cx, lowY), wickPaint);
+      }
+
+      final top = openY < closeY ? openY : closeY;
+      final bh  = (openY - closeY).abs().clamp(1.5, size.height);
+      canvas.drawRect(Rect.fromLTWH(cx - half, top, half * 2, bh), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_CandlePreviewPainter old) => old.style != style;
 }

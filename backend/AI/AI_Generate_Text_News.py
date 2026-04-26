@@ -1,8 +1,8 @@
 """
 AI_Generate_Text.py
 --------------------
-Generate rangkuman berita bergaya Gen Z menggunakan Gemini.
-Struktur output diselaraskan dengan News_Model yang dipakai di seluruh project.
+Generate rangkuman berita bergaya Gen Z menggunakan Gemini,
+lalu simpan hasilnya ke MongoDB via MongoConnection.
 
 Lokasi file:
     /home/nvoinxv/Documents/APPS-MOBILE-EXXE-Private/backend/AI/AI_Generate_Text.py
@@ -10,6 +10,9 @@ Lokasi file:
 Dependensi (satu folder yang sama):
     - news_data.py              → NewsUpdater, fetch berita mentah
     - llm_analisis_sentiment.py → SentimentAnalyzer, SentimentResult
+
+Dependensi (dari folder database/):
+    - ../database/mongo_connection.py → MongoConnection
 
 Cara pakai:
     from AI_Generate_Text import AIGenerateTextNews
@@ -25,9 +28,12 @@ import json
 from datetime import datetime, timezone
 
 # ─── Path fix ─────────────────────────────────────────────────────────────────
-_AI_DIR = os.path.dirname(os.path.abspath(__file__))
-if _AI_DIR not in sys.path:
-    sys.path.insert(0, _AI_DIR)
+_AI_DIR      = os.path.dirname(os.path.abspath(__file__))
+_BACKEND_DIR = os.path.dirname(_AI_DIR)   # naik satu level ke /backend
+
+for _path in (_AI_DIR, _BACKEND_DIR):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
 # ──────────────────────────────────────────────────────────────────────────────
 
 from google import genai
@@ -37,11 +43,17 @@ from dotenv import load_dotenv
 from news_data import NewsUpdater
 from llm_analisis_sentiment import SentimentAnalyzer, SentimentResult
 
+# MongoDB — import lazy supaya error koneksi tidak crash saat import module
+try:
+    from database.mongo_connection import MongoConnection
+    _MONGO_AVAILABLE = True
+except ImportError:
+    _MONGO_AVAILABLE = False
+    print("[WARN] MongoConnection tidak bisa diimport — fitur save ke DB dinonaktifkan.")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # NEWS MODEL
-# Diselaraskan dengan News_Model yang dipakai di seluruh project.
-# Ditambahkan field sentiment karena itu bagian terpenting dari pipeline ini.
 # ══════════════════════════════════════════════════════════════════════════════
 
 class News_Model:
@@ -54,110 +66,86 @@ class News_Model:
     """
 
     def __init__(self):
-        # ── Core fields (sama persis dengan News_Model asli) ──────────────────
-        self.id            = None          # ID unik artikel
-        self.Title         = None          # Judul hasil AI generate (Gen Z style)
-        self.Date          = datetime.now(timezone.utc)   # Waktu generate
-        self.Image         = None          # URL thumbnail / gambar utama artikel
-        self.Description   = None          # Ringkasan singkat 1–2 kalimat (~200 karakter)
-        self.Source        = None          # Nama media sumber asli
-        self.Images_news   = None          # Gambar pendukung 1 (dari artikel asli)
-        self.Images_news_2 = None          # Gambar pendukung 2 (dari artikel asli)
-        self.Images_link   = None          # Link gambar utama (URL lengkap)
+        # ── Core fields ───────────────────────────────────────────────────────
+        self.id            = None
+        self.Title         = None
+        self.Date          = datetime.now(timezone.utc)
+        self.Image         = None
+        self.Description   = None          # 3–5 kalimat, ~400–600 karakter
+        self.Source        = None
+        self.Images_news   = None
+        self.Images_news_2 = None
+        self.Images_link   = None
 
-        # ── Extended fields khusus AI Generate ────────────────────────────────
-        self.Body          = None          # Isi rangkuman panjang ~2000 karakter
-        self.Domain        = None          # Kategori: economy / technology / geopolitics
-        self.Original_Title = None         # Judul asli dari sumber (sebelum di-generate)
-        self.Original_Link  = None         # URL artikel sumber asli
-        self.Original_Published = None     # Tanggal publikasi asli dari sumber
+        # ── Extended fields ───────────────────────────────────────────────────
+        self.Body               = None
+        self.Domain             = None
+        self.Original_Title     = None
+        self.Original_Link      = None
+        self.Original_Published = None
 
-        # ── Sentiment — bagian terpenting, JANGAN dihapus ─────────────────────
-        self.Sentiment     = None          # Label: optimis/positif/netral/negatif/pesimis
-        self.Confidence    = None          # Skor confidence (0.0–1.0)
-        self.Score         = None          # Skor numerik sentiment (-1.0 s/d +1.0)
+        # ── Sentiment — JANGAN dihapus ────────────────────────────────────────
+        self.Sentiment  = None
+        self.Confidence = None
+        self.Score      = None
 
-        # ── Owner ──────────────────────────────────────────────────────────────
-        self.Owner         = "EXXE News"
+        # ── Meta ──────────────────────────────────────────────────────────────
+        self.Owner = "EXXE News"
 
     def __str__(self):
         return (
             f"News_Model("
-            f"id={self.id}, "
-            f"Title={self.Title}, "
-            f"Date={self.Date}, "
-            f"Image={self.Image}, "
-            f"Description={self.Description}, "
-            f"Source={self.Source}, "
-            f"Images_news={self.Images_news}, "
-            f"Images_news_2={self.Images_news_2}, "
-            f"Images_link={self.Images_link}, "
-            f"Sentiment={self.Sentiment}, "
-            f"Confidence={self.Confidence}, "
-            f"Score={self.Score}"
+            f"id={self.id}, Title={self.Title}, Date={self.Date}, "
+            f"Sentiment={self.Sentiment}, Confidence={self.Confidence}, Score={self.Score}"
             f")"
         )
 
     def to_dict(self) -> dict:
-        """
-        Konversi ke dict.
-        Key mengikuti konvensi News_Model asli (PascalCase).
-        """
         return {
-            # ── Core ──────────────────────────────────────────────────────────
-            "_id"           : self.id,
-            "Title"         : self.Title,
-            "Date"          : self.Date.isoformat() if isinstance(self.Date, datetime) else self.Date,
-            "Image"         : self.Image,
-            "Description"   : self.Description,
-            "Source"        : self.Source,
-            "Images_news"   : self.Images_news,
-            "Images_news_2" : self.Images_news_2,
-            "Images_link"   : self.Images_link,
-            # ── Extended ──────────────────────────────────────────────────────
+            "_id"                : self.id,
+            "Title"              : self.Title,
+            "Date"               : self.Date.isoformat() if isinstance(self.Date, datetime) else self.Date,
+            "Image"              : self.Image,
+            "Description"        : self.Description,
+            "Source"             : self.Source,
+            "Images_news"        : self.Images_news,
+            "Images_news_2"      : self.Images_news_2,
+            "Images_link"        : self.Images_link,
             "Body"               : self.Body,
             "Domain"             : self.Domain,
             "Original_Title"     : self.Original_Title,
             "Original_Link"      : self.Original_Link,
             "Original_Published" : self.Original_Published,
-            # ── Sentiment ─────────────────────────────────────────────────────
-            "Sentiment"  : self.Sentiment,
-            "Confidence" : self.Confidence,
-            "Score"      : self.Score,
-            # ── Meta ──────────────────────────────────────────────────────────
-            "Owner" : self.Owner,
+            "Sentiment"          : self.Sentiment,
+            "Confidence"         : self.Confidence,
+            "Score"              : self.Score,
+            "Owner"              : self.Owner,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "News_Model":
-        """Buat instance dari dict (misalnya dari MongoDB atau JSON file)."""
         obj = cls()
-        # ── Core ──────────────────────────────────────────────────────────────
-        obj.id            = data.get("_id")
-        obj.Title         = data.get("Title")
-        obj.Date          = data.get("Date", datetime.now(timezone.utc))
-        obj.Image         = data.get("Image")
-        obj.Description   = data.get("Description")
-        obj.Source        = data.get("Source")
-        obj.Images_news   = data.get("Images_news")
-        obj.Images_news_2 = data.get("Images_news_2")
-        obj.Images_link   = data.get("Images_link")
-        # ── Extended ──────────────────────────────────────────────────────────
+        obj.id             = data.get("_id")
+        obj.Title          = data.get("Title")
+        obj.Date           = data.get("Date", datetime.now(timezone.utc))
+        obj.Image          = data.get("Image")
+        obj.Description    = data.get("Description")
+        obj.Source         = data.get("Source")
+        obj.Images_news    = data.get("Images_news")
+        obj.Images_news_2  = data.get("Images_news_2")
+        obj.Images_link    = data.get("Images_link")
         obj.Body               = data.get("Body")
         obj.Domain             = data.get("Domain")
         obj.Original_Title     = data.get("Original_Title")
         obj.Original_Link      = data.get("Original_Link")
         obj.Original_Published = data.get("Original_Published")
-        # ── Sentiment ─────────────────────────────────────────────────────────
         obj.Sentiment  = data.get("Sentiment")
         obj.Confidence = data.get("Confidence")
         obj.Score      = data.get("Score")
-        # ── Meta ──────────────────────────────────────────────────────────────
-        obj.Owner = data.get("Owner", "EXXE News")
+        obj.Owner      = data.get("Owner", "EXXE News")
         return obj
 
     def display(self) -> str:
-        """Tampilkan artikel ke konsol dengan format rapi."""
         sep = "─" * 70
         sentiment_emoji = {
             "optimis": "🟢", "positif": "🔵", "netral": "⚪",
@@ -181,28 +169,108 @@ class News_Model:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# KONSTANTA PANJANG DESKRIPSI
+# ══════════════════════════════════════════════════════════════════════════════
+
+_DESC_MIN_CHARS = 400
+_DESC_MAX_CHARS = 600
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MONGO SAVE HELPER
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _save_to_mongo(results: list["News_Model"]) -> dict[str, int]:
+    """
+    Simpan list[News_Model] ke MongoDB collection news_general.
+
+    Strategi  : upsert by Original_Link — kalau URL sudah ada, skip (setOnInsert).
+    Collection: news_general (berita dari sumber luar yang di-generate ulang).
+
+    Returns
+    -------
+    dict ringkasan: {"inserted": N, "skipped": N, "errors": N}
+    """
+    if not _MONGO_AVAILABLE:
+        print("[MONGO] ⚠️  MongoConnection tidak tersedia — skip save ke DB.")
+        return {"inserted": 0, "skipped": 0, "errors": 0}
+
+    summary = {"inserted": 0, "skipped": 0, "errors": 0}
+
+    try:
+        mongo = MongoConnection()
+        col   = mongo.collection_news_general   # ← collection target
+
+        for news in results:
+            doc = news.to_dict()
+
+            # Hapus _id None supaya MongoDB auto-generate ObjectId
+            if doc.get("_id") is None:
+                doc.pop("_id", None)
+
+            original_link = news.Original_Link or ""
+
+            if not original_link:
+                # Tidak ada link unik → insert langsung
+                try:
+                    col.insert_one(doc)
+                    summary["inserted"] += 1
+                    print(f"  [MONGO] ✓ Inserted (no link): {news.Title[:55]}")
+                except Exception as e:
+                    summary["errors"] += 1
+                    print(f"  [MONGO] ✗ Insert error: {e}")
+                continue
+
+            try:
+                result = col.update_one(
+                    filter = {"Original_Link": original_link},
+                    update = {"$setOnInsert": doc},   # insert hanya kalau belum ada
+                    upsert = True,
+                )
+
+                if result.upserted_id is not None:
+                    summary["inserted"] += 1
+                    print(f"  [MONGO] ✓ Inserted  : {news.Title[:55]}")
+                else:
+                    summary["skipped"] += 1
+                    print(f"  [MONGO] ↷ Skipped   : {news.Title[:55]}  (duplikat)")
+
+            except Exception as e:
+                summary["errors"] += 1
+                print(f"  [MONGO] ✗ Upsert error '{news.Title[:45]}': {e}")
+
+    except Exception as e:
+        print(f"[MONGO] ✗ Gagal koneksi ke MongoDB: {e}")
+        summary["errors"] += len(results)
+
+    return summary
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # AI GENERATE TEXT NEWS
 # ══════════════════════════════════════════════════════════════════════════════
 
 class AIGenerateTextNews:
     """
-    Generate rangkuman berita bergaya Gen Z, lengkap dengan analisis sentiment.
+    Generate rangkuman berita bergaya Gen Z, lengkap dengan analisis sentiment,
+    lalu simpan hasilnya ke MongoDB collection news_general.
 
     Alur kerja:
         fetch berita (NewsUpdater)
             → generate Title + Description + Body (Gemini)
             → analisis sentiment (SentimentAnalyzer)
-            → hasilkan list[News_Model]
-            → simpan ke JSON + TXT
+            → simpan ke MongoDB   ← BARU
+            → export ke JSON + TXT (opsional)
 
     Parameters
     ----------
-    ai_api_key   : Gemini API key
-    news_api_key : NewsData.io API key
-    output_dir   : direktori output, default "daily_content"
-    max_news     : jumlah berita per run, default 3
-    categories   : kategori yang difetch, default economy/technology/geopolitics
-    language     : bahasa berita, default "en"
+    ai_api_key      : Gemini API key
+    news_api_key    : NewsData.io API key
+    output_dir      : direktori output file, default "daily_content"
+    max_news        : jumlah berita per run, default 3
+    categories      : kategori yang difetch
+    language        : bahasa berita, default "en"
+    save_to_mongo   : simpan ke MongoDB setelah generate (default True)
     """
 
     GENERATE_MODEL  = "gemini-2.5-flash"
@@ -221,20 +289,22 @@ class AIGenerateTextNews:
 
     def __init__(
         self,
-        ai_api_key:   str,
-        news_api_key: str,
-        output_dir:   str             = "daily_content",
-        max_news:     int             = 3,
-        categories:   list[str]|None  = None,
-        language:     str             = "en",
+        ai_api_key:    str,
+        news_api_key:  str,
+        output_dir:    str            = "daily_content",
+        max_news:      int            = 3,
+        categories:    list[str]|None = None,
+        language:      str            = "en",
+        save_to_mongo: bool           = True,
     ):
         if not ai_api_key:
             raise ValueError("Gemini API key tidak boleh kosong.")
         if not news_api_key:
             raise ValueError("NewsData API key tidak boleh kosong.")
 
-        self.output_dir = output_dir
-        self.categories = categories or ["economy", "technology", "geopolitics"]
+        self.output_dir    = output_dir
+        self.categories    = categories or ["economy", "technology", "geopolitics"]
+        self.save_to_mongo = save_to_mongo
 
         os.makedirs(self.output_dir, exist_ok=True)
 
@@ -263,7 +333,7 @@ class AIGenerateTextNews:
         export_txt:  bool = True,
     ) -> list[News_Model]:
         """
-        Jalankan pipeline penuh: fetch → generate → sentiment → export.
+        Jalankan pipeline penuh: fetch → generate → sentiment → MongoDB → export.
 
         Returns
         -------
@@ -273,7 +343,7 @@ class AIGenerateTextNews:
         print("  AI GENERATE TEXT NEWS — EXXE News")
         print("=" * 70)
 
-        # Step 1: Fetch berita mentah
+        # ── Step 1: Fetch berita mentah ───────────────────────────────────────
         print("\n[STEP 1] Fetch berita dari NewsData.io...")
         articles = self.updater.run(
             categories     = self.categories,
@@ -286,7 +356,7 @@ class AIGenerateTextNews:
 
         print(f"[STEP 1] ✓ {len(articles)} artikel siap diproses.\n")
 
-        # Step 2: Generate konten AI + sentiment per artikel
+        # ── Step 2: Generate konten AI + sentiment ────────────────────────────
         print("[STEP 2] Generate konten AI + analisis sentiment...\n")
         results: list[News_Model] = []
 
@@ -303,12 +373,27 @@ class AIGenerateTextNews:
             print("[WARN] Tidak ada konten berhasil di-generate.")
             return []
 
-        # Step 3: Export
-        print(f"\n[STEP 3] Menyimpan {len(results)} konten...")
+        # ── Step 3: Simpan ke MongoDB ─────────────────────────────────────────
+        if self.save_to_mongo:
+            print(f"\n[STEP 3] Menyimpan {len(results)} artikel ke MongoDB (news_general)...")
+            mongo_summary = _save_to_mongo(results)
+            print(
+                f"[STEP 3] ✓ Selesai — "
+                f"inserted={mongo_summary['inserted']}  "
+                f"skipped={mongo_summary['skipped']}  "
+                f"errors={mongo_summary['errors']}"
+            )
+        else:
+            print("\n[STEP 3] Skip MongoDB (save_to_mongo=False).")
+
+        # ── Step 4: Export file (opsional) ────────────────────────────────────
+        print(f"\n[STEP 4] Export file...")
         if export_json:
             self._save_json(results)
         if export_txt:
             self._save_txt(results)
+        if not export_json and not export_txt:
+            print("  (tidak ada format yang diminta)")
 
         print("\n" + "=" * 70)
         print(f"  SELESAI — {len(results)} artikel berhasil di-generate oleh AI")
@@ -321,18 +406,12 @@ class AIGenerateTextNews:
     # ──────────────────────────────────────────────────────────────────────────
 
     def _process_article(self, article: "NewsArticle") -> "News_Model | None":
-        """
-        Proses satu artikel: generate teks AI → analisis sentiment → News_Model.
-        Return None jika generate gagal.
-        """
-        # 1. Generate Title + Description + Body sekaligus
         try:
             title, description, body = self._generate_content(article)
         except Exception as e:
             print(f"          → [ERROR generate] {e}")
             return None
 
-        # 2. Analisis sentiment — BAGIAN TERPENTING, jangan dihapus
         try:
             sentiment_result: SentimentResult = self.sentiment_analyzer.analyze(article)
             sentiment  = sentiment_result.sentiment
@@ -344,35 +423,28 @@ class AIGenerateTextNews:
 
         print(
             f"          → ✓ generate OK  |  "
-            f"sentiment={sentiment}  conf={confidence:.2f}  score={score:.2f}"
+            f"sentiment={sentiment}  conf={confidence:.2f}  score={score:.2f}  "
+            f"desc_len={len(description)}"
         )
 
-        # 3. Bangun News_Model
         news = News_Model()
-
-        # Core fields
         news.Title         = title
         news.Date          = datetime.now(timezone.utc)
-        news.Image         = getattr(article, "image_url", None)     # thumbnail dari sumber
-        news.Description   = description                              # 1–2 kalimat singkat
+        news.Image         = getattr(article, "image_url", None)
+        news.Description   = description
         news.Source        = article.source
-        news.Images_news   = getattr(article, "images_news",   None) # gambar pendukung 1
-        news.Images_news_2 = getattr(article, "images_news_2", None) # gambar pendukung 2
-        news.Images_link   = getattr(article, "image_url",     None) # link gambar utama
-
-        # Extended fields
+        news.Images_news   = getattr(article, "images_news",   None)
+        news.Images_news_2 = getattr(article, "images_news_2", None)
+        news.Images_link   = getattr(article, "image_url",     None)
         news.Body               = body
         news.Domain             = article.domain
         news.Original_Title     = article.title
         news.Original_Link      = article.link
         news.Original_Published = article.published
-
-        # Sentiment — bagian terpenting
         news.Sentiment  = sentiment
         news.Confidence = confidence
         news.Score      = score
-
-        news.Owner = "EXXE News"
+        news.Owner      = "EXXE News"
 
         return news
 
@@ -381,17 +453,6 @@ class AIGenerateTextNews:
     # ──────────────────────────────────────────────────────────────────────────
 
     def _generate_content(self, article: "NewsArticle") -> tuple[str, str, str]:
-        """
-        Panggil Gemini untuk generate Title + Description + Body.
-
-        Returns
-        -------
-        (title, description, body)
-
-        Raises
-        ------
-        ValueError jika output terpotong atau parsing gagal.
-        """
         raw_text = f"Judul: {article.title}\n\nKonten:\n{article.summary[:1500]}"
 
         prompt = f"""Kamu adalah editor berita muda dari EXXE News yang menulis dengan gaya Gen Z — natural, relatable, informatif, dan tetap faktual.
@@ -404,9 +465,14 @@ TUGAS KAMU (3 bagian, wajib semua):
 
 1. JUDUL — 1 baris, gaya Gen Z, tetap relevan dengan isi berita.
 
-2. DESKRIPSI — 1 sampai 2 kalimat singkat, maksimal 200 karakter.
-   Dipakai sebagai preview card di aplikasi, harus to-the-point
-   dan bikin orang penasaran buat baca lebih lanjut.
+2. DESKRIPSI — paragraf preview yang informatif dan menarik.
+   - Panjang WAJIB antara {_DESC_MIN_CHARS}–{_DESC_MAX_CHARS} karakter (sekitar 3–5 kalimat)
+   - Ceritakan KONTEKS utama: apa yang terjadi, siapa yang terlibat, dan kenapa ini penting
+   - Sertakan satu fakta atau angka konkret dari berita jika ada (misal: persentase, nilai, nama tokoh)
+   - Akhiri dengan kalimat yang bikin pembaca penasaran atau relevan sama kehidupan mereka
+   - Gaya bahasa Gen Z Indonesia — santai tapi tetap informatif, bukan clickbait
+   - JANGAN potong di tengah kalimat
+   - JANGAN tulis hanya 1–2 kalimat pendek — ini harus cukup informatif buat dibaca di card
 
 3. BODY — rangkuman editorial ~2000 karakter (tidak kurang dari 1500 karakter).
    - Bahasa natural Gen Z Indonesia, tidak kaku, tetapi tetap akurat
@@ -417,7 +483,8 @@ TUGAS KAMU (3 bagian, wajib semua):
 
 FORMAT OUTPUT (ikuti PERSIS, tanpa teks tambahan di luar format):
 JUDUL: <judul hasil tulisanmu>
-DESKRIPSI: <1–2 kalimat, maks 200 karakter>
+DESKRIPSI:
+<paragraf preview di sini, {_DESC_MIN_CHARS}–{_DESC_MAX_CHARS} karakter, diakhiri kalimat lengkap>
 BODY:
 <rangkuman editorial di sini, min 1500 karakter, diakhiri kalimat lengkap>
 
@@ -430,40 +497,28 @@ Ingat: owner konten ini adalah EXXE News. Jangan sebut nama media lain sebagai p
                 temperature       = 0.75,
                 top_p             = 0.92,
                 top_k             = 40,
-                max_output_tokens = 2048,
+                max_output_tokens = 2560,
                 safety_settings   = self.SAFETY_SETTINGS,
             ),
         )
 
         raw_output = response.text.strip()
 
-        # Validasi output tidak terpotong di tengah
         if raw_output.endswith("...") or raw_output.endswith(".."):
             raise ValueError("Output terpotong (diakhiri '...'). Kemungkinan token limit.")
 
         return self._parse_generated(raw_output)
 
     def _parse_generated(self, raw: str) -> tuple[str, str, str]:
-        """
-        Parse output Gemini → (title, description, body).
-
-        Mapping ke News_Model:
-            JUDUL      → Title
-            DESKRIPSI  → Description
-            BODY       → Body
-        """
-        title        = ""
-        description  = ""
+        title       = ""
+        description = ""
         body_lines: list[str] = []
-
-        # mode: None | "description" | "body"
         mode = None
 
         for line in raw.splitlines():
             stripped = line.strip()
             lower    = stripped.lower()
 
-            # ── Deteksi header section ──────────────────────────────────────
             if lower.startswith("judul:"):
                 title = stripped.split(":", 1)[1].strip()
                 mode  = None
@@ -480,41 +535,51 @@ Ingat: owner konten ini adalah EXXE News. Jangan sebut nama media lain sebagai p
                     body_lines.append(inline)
                 mode = "body"
 
-            # ── Isi section ─────────────────────────────────────────────────
             elif mode == "description":
                 if stripped:
                     description += (" " + stripped) if description else stripped
-                elif description:
-                    mode = None   # baris kosong setelah description = selesai
+                elif len(description) >= _DESC_MIN_CHARS:
+                    mode = None
 
             elif mode == "body":
                 body_lines.append(line)
 
-        body = "\n".join(body_lines).strip()
+        body        = "\n".join(body_lines).strip()
+        description = description.strip('"\'').strip()
 
-        # Bersihkan karakter kutip di description
-        description = description.strip('"\'')
+        # Clamp panjang description — truncate di batas kalimat
+        if len(description) > _DESC_MAX_CHARS:
+            truncated   = description[:_DESC_MAX_CHARS]
+            last_period = max(
+                truncated.rfind(". "),
+                truncated.rfind("! "),
+                truncated.rfind("? "),
+            )
+            if last_period > _DESC_MIN_CHARS:
+                description = truncated[:last_period + 1].strip()
+            else:
+                description = truncated.rstrip() + "…"
 
-        # ── Fallback kalau parsing gagal ────────────────────────────────────
+        # Fallback kalau parsing gagal atau terlalu pendek
         if not title:
             title = "Berita Terkini — EXXE News"
 
-        if not description:
-            sentences   = [s.strip() for s in body.replace("\n", " ").split(".") if s.strip()]
-            fallback    = ". ".join(sentences[:2])
-            description = (fallback[:197] + "...") if len(fallback) > 200 else fallback
+        if not description or len(description) < _DESC_MIN_CHARS // 2:
+            sentences = [s.strip() for s in body.replace("\n", " ").split(".") if s.strip()]
+            fallback  = ". ".join(sentences[:5])
+            if fallback and not fallback.endswith("."):
+                fallback += "."
+            description = fallback if len(fallback) >= 50 else (body[:_DESC_MAX_CHARS] if body else "")
+            if len(description) > _DESC_MAX_CHARS:
+                description = description[:_DESC_MAX_CHARS].rstrip() + "…"
 
         if not body:
             body = raw
 
-        # Pastikan description tidak melebihi 200 karakter
-        if len(description) > 200:
-            description = description[:197] + "..."
-
         return title, description, body
 
     # ──────────────────────────────────────────────────────────────────────────
-    # INTERNAL: export
+    # INTERNAL: export file
     # ──────────────────────────────────────────────────────────────────────────
 
     def _save_json(self, results: list[News_Model]) -> str:
@@ -553,8 +618,10 @@ Ingat: owner konten ini adalah EXXE News. Jangan sebut nama media lain sebagai p
                 f.write(f"Sumber    : {r.Source}\n")
                 f.write(f"Tanggal   : {r.Original_Published}\n")
                 f.write(f"Link      : {r.Original_Link}\n")
-                f.write(f"Sentiment : {str(r.Sentiment).upper()}  "
-                        f"(conf={r.Confidence:.2f}  score={r.Score:.2f})\n")
+                f.write(
+                    f"Sentiment : {str(r.Sentiment).upper()}  "
+                    f"(conf={r.Confidence:.2f}  score={r.Score:.2f})\n"
+                )
                 f.write(f"Owner     : {r.Owner}\n")
                 f.write("\n" + "=" * 70 + "\n\n")
 
@@ -585,12 +652,13 @@ def main():
         raise EnvironmentError("News API key tidak ditemukan! Cek .env → api_key_news / API_NEWS")
 
     generator = AIGenerateTextNews(
-        ai_api_key   = ai_api_key,
-        news_api_key = news_api_key,
-        output_dir   = "daily_content",
-        max_news     = 3,
-        categories   = ["economy", "technology", "geopolitics"],
-        language     = "en",
+        ai_api_key    = ai_api_key,
+        news_api_key  = news_api_key,
+        output_dir    = "daily_content",
+        max_news      = 3,
+        categories    = ["economy", "technology", "geopolitics"],
+        language      = "en",
+        save_to_mongo = True,   # set False kalau mau skip MongoDB saat testing
     )
 
     generator.run(export_json=True, export_txt=True)

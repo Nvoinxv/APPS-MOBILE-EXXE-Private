@@ -1,0 +1,51 @@
+EXXE News — Daily Report
+Generated : 2026-04-02 10:14:14
+Total     : 3 artikel
+======================================================================
+
+[1] Anthropic Bikin Gempar! Ribuan Repo GitHub Dihapus, Eh Ternyata 'Kecelakaan' Doang?
+──────────────────────────────────────────────────────────────────────
+📋 Gegara insiden source code bocor, perusahaan AI Anthropic bikin geger dunia maya. Mereka tiba-tiba men-takedown ribuan repository di GitHub, yang sontak bikin para developer dan komunitas tech kaget. Bayangin aja, ribuan proyek yang mungkin lagi dikerjain orang, tiba-
+
+JUDUL: Anthropic Bikin Gempar! Ribuan Repo GitHub Dihapus, Eh Ternyata 'Kecelakaan' Doang?
+DESKRIPSI:
+Gegara insiden source code bocor, perusahaan AI Anthropic bikin geger dunia maya. Mereka tiba-tiba men-takedown ribuan repository di GitHub, yang sontak bikin para developer dan komunitas tech kaget. Bayangin aja, ribuan proyek yang mungkin lagi dikerjain orang, tiba-
+
+Sumber    : techcrunch
+Tanggal   : 2026-04-01 22:12:13
+Link      : https://techcrunch.com/2026/04/01/anthropic-took-down-thousands-of-github-repos-trying-to-yank-its-leaked-source-code-a-move-the-company-says-was-an-accident/
+Sentiment : NETRAL  (conf=0.85  score=0.00)
+Owner     : EXXE News
+
+======================================================================
+
+[2] Gila, Alex Jones Pun Udah Muak Sama Trump!
+──────────────────────────────────────────────────────────────────────
+📋 Siapa sangka, Alex Jones, pundit sayap kanan garis keras yang udah loyal banget sama Donald Trump dari awal, kini merasa "sakit perut dan jijik" sama idolanya? Di tengah rating Trump yang anjlok karena perang dan ekonomi goyang, Jones curhat soal kekecewaannya. Ia kecewa karena janji kampanye yang gagal, perang yang nggak populer, sampai penanganan kasus Epstein yang bikin geram. Bahkan, Jones khawatir Trump bakal jadi "globalist democrat" kayak Barack Obama. Ini nunjukkin kalau bahkan pendukung paling setia pun bisa berubah pikiran, apalagi kalau kebijakan udah melenceng jauh dari misi awal.
+
+Gila sih, dunia politik emang nggak ada habisnya bikin kaget. Bayangin aja, Donald Trump yang lagi pusing sama rating popularitasnya yang makin anjlok, ditambah perang yang nggak populer dan ekonomi yang lagi goyang, ternyata nggak cuma kehilangan suara dari swing voters
+
+Sumber    : alternet_org
+Tanggal   : 2026-04-01 22:12:43
+Link      : https://www.alternet.org/alex-jones-trump-2676651725/
+Sentiment : NEGATIF  (conf=0.95  score=-0.50)
+Owner     : EXXE News
+
+======================================================================
+
+[3] Udah 2026, Masih Pake MS Office Aja? Intip Alternatifnya!
+──────────────────────────────────────────────────────────────────────
+📋 Siapa sih di antara kita yang gak familiar sama Microsoft Office? Dari zaman sekolah sampai kerja, suite produktivitas ini kayak udah jadi standar wajib. Tapi, seiring berjalannya waktu dan makin canggihnya teknologi, banyak banget pilihan baru yang muncul di horizon, apalagi pas kita ngomongin tahun 2026 nanti
+
+JUDUL: Udah 2026, Masih Pake MS Office Aja? Intip Alternatifnya!
+DESKRIPSI:
+Siapa sih di antara kita yang gak familiar sama Microsoft Office? Dari zaman sekolah sampai kerja, suite produktivitas ini kayak udah jadi standar wajib. Tapi, seiring berjalannya waktu dan makin canggihnya teknologi, banyak banget pilihan baru yang muncul di horizon, apalagi pas kita ngomongin tahun 2026 nanti
+
+Sumber    : analyticsinsight
+Tanggal   : 2026-04-01 22:12:00
+Link      : https://www.analyticsinsight.net/ampstories/apps/top-alternatives-to-microsoft-office-in-2026-free-paid
+Sentiment : NETRAL  (conf=0.95  score=0.00)
+Owner     : EXXE News
+
+======================================================================
+

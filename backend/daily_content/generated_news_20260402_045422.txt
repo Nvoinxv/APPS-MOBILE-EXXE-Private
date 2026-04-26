@@ -1,0 +1,55 @@
+EXXE News — Daily Report
+Generated : 2026-04-02 04:54:22
+Total     : 3 artikel
+======================================================================
+
+[1] POV: Lahir di Negara Ini, Auto Jadi Warga Negara!
+──────────────────────────────────────────────────────────────────────
+📋 Tau gak sih, guys? Lebih dari 30 negara di dunia ini punya aturan unik yang bikin kamu otomatis jadi warga negara mereka begitu lahir, tanpa syarat khusus. Konsep 'birthright citizenship' ini lagi jadi perbincangan hangat, lho, karena punya dampak besar buat mobilitas global dan identitas seseorang. Bayangin deh, cuma karena lahir di tanah tertentu, status
+
+JUDUL: POV: Lahir di Negara Ini, Auto Jadi Warga Negara!
+
+DESKRIPSI:
+Tau gak sih, guys? Lebih dari 30 negara di dunia ini punya aturan unik yang bikin kamu otomatis jadi warga negara mereka begitu lahir, tanpa syarat khusus. Konsep 'birthright citizenship' ini lagi jadi perbincangan hangat, lho, karena punya dampak besar buat mobilitas global dan identitas seseorang. Bayangin deh, cuma karena lahir di tanah tertentu, status
+
+Sumber    : kcra
+Tanggal   : 2026-04-01 16:53:00
+Link      : https://www.kcra.com/article/birthright-citizenship-countries-map/70907686
+Sentiment : NETRAL  (conf=0.95  score=0.00)
+Owner     : EXXE News
+
+======================================================================
+
+[2] Der Baum: Pohon LED Raksasa di Jerman yang Bikin Gasometer Jadi Hutan Cahaya!
+──────────────────────────────────────────────────────────────────────
+📋 Pernah bayangin pohon setinggi gedung yang isinya cuma cahaya? Di Gasometer Oberhausen, Jerman, ada instalasi seni digital keren banget bernama 'Der Baum'. Pohon LED raksasa setinggi 35 meter ini bukan cuma indah dipandang, tapi juga bikin kita bisa 'melihat' proses tersembunyi di dalam pohon
+
+JUDUL: Der Baum: Pohon LED Raksasa di Jerman yang Bikin Gasometer Jadi Hutan Cahaya!
+DESKRIPSI:
+Pernah bayangin pohon setinggi gedung yang isinya cuma cahaya? Di Gasometer Oberhausen, Jerman, ada instalasi seni digital keren banget bernama 'Der Baum'. Pohon LED raksasa setinggi 35 meter ini bukan cuma indah dipandang, tapi juga bikin kita bisa 'melihat' proses tersembunyi di dalam pohon
+
+Sumber    : avinteractive
+Tanggal   : 2026-04-01 16:51:04
+Link      : https://www.avinteractive.com/territories-news/europe/huge-led-tree-lights-up-a-gasometer-exhibition-hall-01-04-2026/
+Sentiment : POSITIF  (conf=0.85  score=0.50)
+Owner     : EXXE News
+
+======================================================================
+
+[3] Apple Ultah ke-50: Masa Depan Ada di Tangan AI, Bener Gak Sih?
+──────────────────────────────────────────────────────────────────────
+📋 Apple baru aja ngerayain ulang tahun ke-50, tapi bukannya nostalgia, mereka malah ngegas banget ke masa depan dengan fokus utama di Artificial Intelligence (AI). Ini bukan cuma soal gimmick, guys, tapi beneran jadi pivot strategis buat tetap relevan di tengah persaingan ketat yang makin panas.
+
+JUDUL: Apple Ultah ke-50: Masa Depan Ada di Tangan AI, Bener Gak Sih?
+
+DESKRIPSI:
+Apple baru aja ngerayain ulang tahun ke-50, tapi bukannya nostalgia, mereka malah ngegas banget ke masa depan dengan fokus utama di Artificial Intelligence (AI). Ini bukan cuma soal gimmick, guys, tapi beneran jadi pivot strategis buat tetap relevan di tengah persaingan ketat yang makin panas.
+
+Sumber    : google
+Tanggal   : 2026-04-01 16:53:00
+Link      : https://news.google.com/rss/articles/CBMilgFBVV95cUxPWjJ6NXMwMERCLWpPbjJZcWlIU05kV0VQamhxcXctQlMwczJYR0ZiZFVfbGNWTERELUtVdFdnbmlQQjA4WlAyTWJaTURIWGdLZGFNQmprRFBvWHRFelI3SmtYeng4MmYyckw4angxVUdGMUJYS0JxazZjTUtVb1dwTFBqdkpwc2NlLWRVeW9abEVMU25RTGc?oc=5
+Sentiment : OPTIMIS  (conf=0.92  score=1.00)
+Owner     : EXXE News
+
+======================================================================
+

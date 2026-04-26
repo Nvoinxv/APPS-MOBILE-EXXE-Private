@@ -1,0 +1,86 @@
+EXXE News — Daily Report
+Generated : 2026-04-26 04:50:48
+Total     : 5 artikel
+======================================================================
+
+[1] Gokil! AI Buatan Mesir Ini Kalahkan Model Global, Bikin Bangga!
+──────────────────────────────────────────────────────────────────────
+📋 Guys, ada berita keren nih dari dunia AI! Startup asal Kairo, TokenAI, yang didirikan Assem Sabry, baru aja rilis model bahasa besar (LLM) open-source buatan Mesir, namanya Horus 1.0-4B. Yang bikin heboh, model ini ternyata berhasil ngalahin performa beberapa model
+
+JUDUL: Gokil! AI Buatan Mesir Ini Kalahkan Model Global, Bikin Bangga!
+DESKRIPSI:
+Guys, ada berita keren nih dari dunia AI! Startup asal Kairo, TokenAI, yang didirikan Assem Sabry, baru aja rilis model bahasa besar (LLM) open-source buatan Mesir, namanya Horus 1.0-4B. Yang bikin heboh, model ini ternyata berhasil ngalahin performa beberapa model
+
+Sumber    : iafrica
+Tanggal   : 2026-04-25 16:48:18
+Link      : https://iafrica.com/egyptian-startup-releases-open-source-ai-model-that-outperforms-larger-global-rivals-on-key-benchmarks/
+Sentiment : OPTIMIS  (conf=0.95  score=1.00)
+Owner     : EXXE News
+
+======================================================================
+
+[2] Goldman Sachs Kasih Clue: Ada Pasar Saham yang Bakal Nge-Gas Ngalahin Amerika, Lho!
+──────────────────────────────────────────────────────────────────────
+📋 Goldman Sachs, bank investasi gede dunia, baru aja bikin heboh dengan prediksinya! Mereka bilang ada satu pasar saham di luar sana yang punya potensi luar biasa buat nge-gas dan ngalahin performa indeks pasar saham Amerika Serikat yang udah jadi raksasa. Ini bukan cuma gosip, tapi analisis mendalam dari
+
+JUDUL: Goldman Sachs Kasih Clue: Ada Pasar Saham yang Bakal Nge-Gas Ngalahin Amerika, Lho!
+DESKRIPSI:
+Goldman Sachs, bank investasi gede dunia, baru aja bikin heboh dengan prediksinya! Mereka bilang ada satu pasar saham di luar sana yang punya potensi luar biasa buat nge-gas dan ngalahin performa indeks pasar saham Amerika Serikat yang udah jadi raksasa. Ini bukan cuma gosip, tapi analisis mendalam dari
+
+Sumber    : investing_in
+Tanggal   : 2026-04-25 16:48:11
+Link      : https://in.investing.com/news/stock-market-news/goldman-says-this-stock-market-is-likely-to-outperform-the-us-equity-market-index-5358909
+Sentiment : OPTIMIS  (conf=0.95  score=1.00)
+Owner     : EXXE News
+
+======================================================================
+
+[3] Kemana Sih Touch Bar Apple? Kisah di Balik Fitur yang Gak Jadi Hype
+──────────────────────────────────────────────────────────────────────
+📋 Ingat Touch Bar di MacBook Pro? Dulu pas debut di tahun 2016, fitur ini digadang-gadang jadi inovasi paling futuristik dari Apple. Konsep keyboard dinamis yang bisa berubah sesuai aplikasi ini emang bikin banyak orang penasaran dan mikir, 'Ini dia nih masa depan komputasi!' Sayangnya, ekspekt
+
+JUDUL: Kemana Sih Touch Bar Apple? Kisah di Balik Fitur yang Gak Jadi Hype
+
+DESKRIPSI:
+Ingat Touch Bar di MacBook Pro? Dulu pas debut di tahun 2016, fitur ini digadang-gadang jadi inovasi paling futuristik dari Apple. Konsep keyboard dinamis yang bisa berubah sesuai aplikasi ini emang bikin banyak orang penasaran dan mikir, 'Ini dia nih masa depan komputasi!' Sayangnya, ekspekt
+
+Sumber    : bgr_com
+Tanggal   : 2026-04-25 16:47:00
+Link      : https://www.bgr.com/2144836/why-apple-got-rid-of-touch-bar-macbook-pro/
+Sentiment : NETRAL  (conf=0.85  score=0.00)
+Owner     : EXXE News
+
+======================================================================
+
+[4] Gokil! Afrika Siap Power Up Masa Depan Energi Tanpa Batas
+──────────────────────────────────────────────────────────────────────
+📋 Pemerintah baru aja nekenin lagi komitmennya buat wujudin masa depan energi yang borderless dan sustainable di Afrika. Targetnya gila banget, pengen capai 10 gigawatt listrik di tahun 2030! Menteri Energi Makozo Chikote bilang, Zambia serius banget garap proyek energi biar pasokan listrik aman, nggak cuma
+
+JUDUL: Gokil! Afrika Siap Power Up Masa Depan Energi Tanpa Batas
+DESKRIPSI:
+Pemerintah baru aja nekenin lagi komitmennya buat wujudin masa depan energi yang borderless dan sustainable di Afrika. Targetnya gila banget, pengen capai 10 gigawatt listrik di tahun 2030! Menteri Energi Makozo Chikote bilang, Zambia serius banget garap proyek energi biar pasokan listrik aman, nggak cuma
+
+Sumber    : lusakatimes
+Tanggal   : 2026-04-25 16:48:59
+Link      : https://www.lusakatimes.com/2026/04/25/government-reaffirms-commitment-to-borderless-energy-future-for-africa/
+Sentiment : NETRAL  (conf=0.50  score=0.00)
+Owner     : EXXE News
+
+======================================================================
+
+[5] Demokrasi Representatif: Udah Nggak Zaman Lagi, Emang Iyah?
+──────────────────────────────────────────────────────────────────────
+📋 Guys, pernah mikir nggak sih kalau sistem demokrasi representatif yang kita anut sekarang ini sebenarnya udah nggak relevan? Selama ini, kita diajarkan kalau demokrasi representatif itu udah paling 'the best' dan jadi puncak pencapaian politik umat manusia, bahkan dianggap dogma yang nggak boleh dipertanyakan. Padahal, ada lho pandangan yang bilang kalau sistem
+
+JUDUL: Demokrasi Representatif: Udah Nggak Zaman Lagi, Emang Iyah?
+DESKRIPSI:
+Guys, pernah mikir nggak sih kalau sistem demokrasi representatif yang kita anut sekarang ini sebenarnya udah nggak relevan? Selama ini, kita diajarkan kalau demokrasi representatif itu udah paling 'the best' dan jadi puncak pencapaian politik umat manusia, bahkan dianggap dogma yang nggak boleh dipertanyakan. Padahal, ada lho pandangan yang bilang kalau sistem
+
+Sumber    : cbnc
+Tanggal   : 2026-04-25 16:48:02
+Link      : https://cbnc.com/why-representative-democracy-is-obsolete/
+Sentiment : PESIMIS  (conf=0.95  score=-1.00)
+Owner     : EXXE News
+
+======================================================================
+

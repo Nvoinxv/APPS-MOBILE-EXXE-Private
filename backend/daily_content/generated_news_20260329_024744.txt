@@ -1,0 +1,47 @@
+EXXE News — Daily Report
+Generated : 2026-03-29 02:47:44
+Total     : 3 artikel
+======================================================================
+
+[1] Hannan Mollah Kritik ECI: Proses SIR Benggala Barat Dipertanyakan, Pemilih Kok Hilang?
+──────────────────────────────────────────────────────────────────────
+📋 Politisi CPI-M Hannan Mollah kritik keras ECI soal proses SIR di Benggala Barat. Ada dugaan penghapusan pemilih secara ilegal. Bikin geger!
+
+Waduh, suasana politik di
+
+Sumber    : menafn
+Tanggal   : 2026-03-28 14:45:24
+Link      : https://menafn.com/1110913411/CPI-Ms-Hannan-Mollah-Questions-SIR-Process-In-Bengal-Alleges-Voter-Deletions
+Sentiment : NEGATIF  (conf=0.85  score=-0.50)
+Owner     : EXXE News
+
+======================================================================
+
+[2] Arunachal Gercep! Job Fair 3 Kota, Kesempatan Emas Buat Kamu!
+──────────────────────────────────────────────────────────────────────
+📋 Pemerintah Arunachal lagi serius bantu warga cari kerja. Job fair gede-gedean di 3 kota siap jadi jembatan karir impianmu. Cekidot info lengkapnya!
+
+Kabar gembira buat para pejuang karir
+
+Sumber    : news18
+Tanggal   : 2026-03-28 14:45:08
+Link      : https://www.news18.com/agency-feeds/arunachal-govt-to-host-job-fair-in-3-towns-10002908.html
+Sentiment : NETRAL  (conf=0.95  score=0.00)
+Owner     : EXXE News
+
+======================================================================
+
+[3] Vape Kamu Sekarang Punya Sensor Umur?!
+──────────────────────────────────────────────────────────────────────
+📋 Anti-bocil! Ike Tech rilis teknologi verifikasi umur vape 100% akurat. FDA aja sampe sebut 'holy grail'. Baca yuk!
+
+Oke, guys, dengerin ini baik-baik! Dunia vape lagi heboh nih sama inovasi dari Ike Tech.
+
+Sumber    : startupnews
+Tanggal   : 2026-03-28 14:45:02
+Link      : https://startupnews.fyi/2026/03/28/your-vape-wants-to-know-how-old-you-are/
+Sentiment : POSITIF  (conf=0.85  score=0.50)
+Owner     : EXXE News
+
+======================================================================
+

@@ -6,25 +6,19 @@ import '../candle/candle_normal.dart';
 // ══════════════════════════════════════════════════════════════════════════════
 // InteractiveCandlestickChart
 //
-// FIX ROOT CAUSE — "dual coordinate system" bug:
+// ARSITEKTUR:
+//   Widget ini adalah PURE DISPLAY widget — tidak manage gesture pan/zoom.
+//   Semua pan/zoom ditangani oleh TradeViewScreen via Listener + GestureDetector
+//   di level atas (parent). Widget ini hanya:
+//     1. Menerima scale + offset dari controller (via parent)
+//     2. Render candle sesuai koordinat tersebut
+//     3. Detect TAP untuk select candle
 //
-// SEBELUMNYA:
-//   Widget ini manage `_scale` dan `_offset` sendiri di internal state.
-//   Saat user pan/zoom, hanya internal state yang berubah → candle bergerak.
-//   Tapi ChartCoordinateMapper di TradeViewScreen pakai
-//   `_controller.state.scale` dan `_controller.state.offset` yang berbeda.
-//   Hasil: candle bergerak, tapi label strategy TIDAK ikut karena mapper
-//   tidak tahu candle sudah pindah ke mana.
-//
-// SESUDAH:
-//   - Internal `_scale` dan `_offset` DIHAPUS.
-//   - Widget menerima `scale` dan `offset` dari parent (ChartController)
-//     via constructor parameter.
-//   - Pan/zoom diteruskan ke parent via `onScaleUpdate` dan `onOffsetUpdate`
-//     callback — controller yang update state, setState dipanggil,
-//     LayoutBuilder rebuild, mapper fresh, semua layer pakai koordinat sama.
-//   - Candle painter menggunakan formula koordinat yang IDENTIK dengan
-//     ChartCoordinateMapper.candleIndexToX() sehingga pixel-perfect sync.
+// KENAPA GESTURE DIHAPUS DARI SINI:
+//   GestureDetector internal (onScaleUpdate) dan Listener di parent
+//   keduanya aktif bersamaan untuk event yang sama → double-pan.
+//   Setiap swipe menghasilkan 2x applyPanDelta → chart loncat 2x lipat.
+//   Solusi: satu sumber kebenaran untuk gesture, yaitu TradeViewScreen.
 // ══════════════════════════════════════════════════════════════════════════════
 
 class InteractiveCandlestickChart extends StatefulWidget {
@@ -33,11 +27,12 @@ class InteractiveCandlestickChart extends StatefulWidget {
   final bool               showVolume;
   final Function(CryptoCandle?)? onCandleSelected;
 
-  // FIX: scale dan offset dari controller, bukan internal state
   final double scale;
   final Offset offset;
 
-  // FIX: callback ke controller saat user pan/zoom
+  // onScaleUpdate dan onOffsetUpdate TIDAK digunakan lagi untuk pan/zoom.
+  // Dipertahankan untuk backward-compatibility — tidak akan dipanggil
+  // dari dalam widget ini, tapi parent masih boleh pass callback.
   final void Function(double newScale)?  onScaleUpdate;
   final void Function(Offset newOffset)? onOffsetUpdate;
 
@@ -60,43 +55,21 @@ class InteractiveCandlestickChart extends StatefulWidget {
 
 class _InteractiveCandlestickChartState
     extends State<InteractiveCandlestickChart> {
-  int?   _selectedIndex;
-
-  // Untuk hitung delta scale saat pinch
-  double _scaleAtGestureStart = 1.0;
-  Offset _offsetAtGestureStart = Offset.zero;
+  int? _selectedIndex;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      behavior: HitTestBehavior.opaque,
+      behavior: HitTestBehavior.translucent,
+      // HANYA tap — tidak ada onScaleStart/Update/End di sini.
+      // Pan dan zoom sepenuhnya ditangani TradeViewScreen via:
+      //   - Listener.onPointerMove → applyPanDelta (pan 1 jari)
+      //   - GestureDetector.onScaleUpdate → updateScale (pinch 2 jari)
       onTapDown: (details) => _findSelectedCandle(details.localPosition),
-      onScaleStart: (details) {
-        // FIX: snapshot nilai saat gesture mulai
-        _scaleAtGestureStart  = widget.scale;
-        _offsetAtGestureStart = widget.offset;
-      },
-      onScaleUpdate: (details) {
-        // FIX: hitung scale baru dari snapshot, bukan akumulasi delta
-        final newScale = (_scaleAtGestureStart * details.scale).clamp(0.5, 5.0);
-
-        // Pan: tambah delta focal ke offset
-        final newOffset = Offset(
-          _offsetAtGestureStart.dx + details.focalPointDelta.dx,
-          0, // Y-axis pan dikontrol controller terpisah jika perlu
-        );
-
-        // Naik ke controller via callback
-        if (details.scale != 1.0) {
-          widget.onScaleUpdate?.call(newScale);
-        }
-        widget.onOffsetUpdate?.call(newOffset);
-      },
       child: CustomPaint(
         painter: InteractiveCandlestickPainter(
           candles:       widget.candles,
           style:         widget.style,
-          // FIX: pakai scale/offset dari controller (sudah sync dengan mapper)
           scale:         widget.scale,
           offset:        widget.offset,
           showVolume:    widget.showVolume,
@@ -111,22 +84,12 @@ class _InteractiveCandlestickChartState
     final chartWidth = context.size?.width ?? 0;
     if (chartWidth == 0 || widget.candles.isEmpty) return;
 
-    // FIX: gunakan formula IDENTIK dengan ChartCoordinateMapper.candleIndexToX()
-    // candleIndexToX(i) = (i - offset) * candleWidth
-    // di mana candleWidth = chartSize.width / (totalCandles / scale)
-    // → candleWidth = chartWidth * scale / totalCandles
     final candleWidth = chartWidth * widget.scale / widget.candles.length;
+    if (candleWidth <= 0) return;
 
-    // Invert: x = (i - offset.dx) * candleWidth
-    // → i = x / candleWidth + offset.dx
-    // Note: offset.dx dari controller adalah pixel offset, bukan candle index
-    // ChartCoordinateMapper: candleIndexToX(i) = (i - offset) * _candleWidth
-    // di mana offset = state.offset.dx (pixel scroll position)
-    // Maka: i = x / candleWidth + offset / candleWidth * ... perlu hati-hati
-    //
-    // Pakai pendekatan sederhana: hitung index dari posisi tap
-    final adjustedX = position.dx - widget.offset.dx;
-    final index = (adjustedX / candleWidth).floor();
+    // Invert formula: x = (i * candleWidth) + offset.dx
+    // → i = (x - offset.dx) / candleWidth
+    final index = ((position.dx - widget.offset.dx) / candleWidth).floor();
 
     if (index >= 0 && index < widget.candles.length) {
       setState(() {
@@ -138,31 +101,9 @@ class _InteractiveCandlestickChartState
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Painter — koordinat X HARUS identik dengan ChartCoordinateMapper
-//
-// ChartCoordinateMapper.candleIndexToX(i):
-//   _candleWidth = chartSize.width / (totalCandles / scale)
-//               = chartSize.width * scale / totalCandles
-//   x = (i - offset) * _candleWidth
-//
-// Di painter kita tidak punya chartSize langsung tapi punya `size` dari paint().
-// Rumus identik:
-//   candleW = size.width * scale / candles.length
-//   x       = (i - offsetInCandleUnits) * candleW
-//
-// Tapi `offset` dari controller adalah pixel (Offset.dx), bukan candle units.
-// ChartCoordinateMapper menggunakan offset sebagai candle index offset:
-//   candleIndexToX(i) = (i - offset) * _candleWidth
-// → offset di sini adalah CANDLE INDEX offset, bukan pixel.
-//
-// Maka kita harus konsisten: offset yang di-pass ke painter adalah
-// state.offset.dx dari controller, dan di ChartCoordinateMapper
-// constructor: `offset: state.offset.dx`.
-// Artinya offset = pixel offset, dan:
-//   x_pixel = (i * candleW) + offset.dx   ← formula lama yang benar untuk pixel offset
-//
-// Kita pilih formula ini agar konsisten dengan GridInteractive yang sudah ada:
-//   x = (i * candleWidth) + offset.dx
+// Painter — tidak ada perubahan dari versi sebelumnya
+// Koordinat X: x = (i * candleWidth) + offset.dx
+// Konsisten dengan GridInteractive dan ChartViewport.indexToX()
 // ══════════════════════════════════════════════════════════════════════════════
 
 class InteractiveCandlestickPainter extends CustomPainter {
@@ -191,30 +132,25 @@ class InteractiveCandlestickPainter extends CustomPainter {
     final priceRange = maxPrice - minPrice;
     if (priceRange == 0) return;
 
-    // FIX: formula candleWidth IDENTIK dengan ChartCoordinateMapper._candleWidth
-    // _candleWidth = chartSize.width / (totalCandles / scale)
-    //              = size.width * scale / candles.length
     final candleWidth   = size.width * scale / candles.length;
     final bodyWidth     = (candleWidth * 0.7).clamp(1.5, 24.0);
     final halfBodyWidth = bodyWidth / 2;
 
     for (int i = 0; i < candles.length; i++) {
-      // FIX: formula X IDENTIK dengan ChartCoordinateMapper.candleIndexToX(i)
-      // candleIndexToX(i) = (i - offset) * _candleWidth
-      // di sini offset adalah state.offset.dx yang dipakai sebagai candle offset
-      final cx = (i - offset.dx) * candleWidth;
+      // Formula X: konsisten dengan GridInteractive dan ChartViewport
+      final cx = (i * candleWidth) + offset.dx;
 
-      // Culling — skip kalau di luar layar
+      // Viewport culling
       if (cx + halfBodyWidth < 0 || cx - halfBodyWidth > size.width) continue;
 
       final candle    = candles[i];
       final isBullish = candle.close >= candle.open;
       final color     = isBullish ? style.bullishColor : style.bearishColor;
 
-      final highY  = _priceToY(candle.high, minPrice, maxPrice, size.height);
-      final lowY   = _priceToY(candle.low,  minPrice, maxPrice, size.height);
-      final openY  = _priceToY(candle.open, minPrice, maxPrice, size.height);
-      final closeY = _priceToY(candle.close,minPrice, maxPrice, size.height);
+      final highY  = _priceToY(candle.high,  minPrice, maxPrice, size.height);
+      final lowY   = _priceToY(candle.low,   minPrice, maxPrice, size.height);
+      final openY  = _priceToY(candle.open,  minPrice, maxPrice, size.height);
+      final closeY = _priceToY(candle.close, minPrice, maxPrice, size.height);
 
       // Wick
       canvas.drawLine(
@@ -275,8 +211,7 @@ class InteractiveCandlestickPainter extends CustomPainter {
         ),
       );
       tp.layout();
-      tp.paint(canvas,
-          Offset(size.width - tp.width - 4, y - tp.height / 2));
+      tp.paint(canvas, Offset(size.width - tp.width - 4, y - tp.height / 2));
     }
   }
 
