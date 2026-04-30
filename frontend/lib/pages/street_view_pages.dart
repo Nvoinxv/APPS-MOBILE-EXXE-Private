@@ -1,22 +1,29 @@
 import 'package:flutter/material.dart';
 import '../hooks/crypto_data_hook.dart';
 import '../style/apps_street_view_colors.dart';
-import '../trading_screen/tradeview_screen.dart'; 
-
+import '../trading_screen/tradeview_screen.dart';
+import '../utils/role_guard.dart'; // ← TAMBAH INI
+ 
 class CryptoStreetViewSection extends StatefulWidget {
-  const CryptoStreetViewSection({super.key});
-  
+  final String token; // ← TAMBAH PARAMETER TOKEN
+ 
+  const CryptoStreetViewSection({
+    super.key,
+    required this.token, // ← WAJIB DIISI
+  });
+ 
   @override
-  State<CryptoStreetViewSection> createState() => _CryptoStreetViewSectionState();
+  State<CryptoStreetViewSection> createState() =>
+      _CryptoStreetViewSectionState();
 }
-
+ 
 class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
   late CryptoDataHook cryptoHook;
   final TextEditingController _searchController = TextEditingController();
   List<String> filteredTickers = [];
   bool isInitialized = false;
   String selectedInterval = '15m';
-
+ 
   @override
   void initState() {
     super.initState();
@@ -24,45 +31,35 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
     _searchController.addListener(_filterCoins);
     filteredTickers = TokoCryptoPairs.top100;
   }
-
+ 
   void _initializeCryptoData() {
-    // Multi-timeframe support
     cryptoHook = CryptoDataHook(
       tickers: TokoCryptoPairs.top100,
-      intervals: Timeframes.common, // ['5m', '15m', '30m', '1h', '4h', '1d']
+      intervals: Timeframes.common,
       autoUpdateInterval: 60,
     );
-
+ 
     cryptoHook.onDataUpdate = (ticker, interval, candles) {
-      // Update UI only for selected interval and if widget is still mounted
       if (!mounted) return;
       if (interval == selectedInterval) {
-        // Use addPostFrameCallback to ensure safe setState timing
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            setState(() {});
-          }
+          if (mounted) setState(() {});
         });
       }
     };
-
+ 
     cryptoHook.onError = (ticker, interval, error) {
       print('❌ Error $ticker $interval: $error');
     };
-
+ 
     cryptoHook.onAllDataReady = () {
-      if (mounted) {
-        print('✅ All timeframes ready');
-      }
+      if (mounted) print('✅ All timeframes ready');
     };
-
+ 
     cryptoHook.startAdaptiveUpdate();
-    
-    setState(() {
-      isInitialized = true;
-    });
+    setState(() => isInitialized = true);
   }
-
+ 
   void _filterCoins() {
     final query = _searchController.text.toLowerCase();
     setState(() {
@@ -76,45 +73,47 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
       }
     });
   }
-
+ 
   void _changeInterval(String newInterval) {
-    setState(() {
-      selectedInterval = newInterval;
-    });
+    setState(() => selectedInterval = newInterval);
   }
-
-  // FUNGSI NAVIGASI KE TRADING VIEW - UPDATED
+ 
+  // ─── Navigasi ke Trade View ───────────────────────────────────────────────
+  // RoleGuard sudah dipasang di main.dart, tapi kalau navigate
+  // langsung via push (bukan named route), bungkus juga di sini
+  // supaya aman dari side entry.
   void _openTradingView(String ticker) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => TradeViewScreen(
-          token: ticker, // Pass ticker sebagai token
+        builder: (context) => RoleGuard(
+          token: widget.token,
+          child: TradeViewScreen(token: ticker),
         ),
       ),
     );
   }
-
+ 
   @override
   void dispose() {
     cryptoHook.dispose();
     _searchController.dispose();
     super.dispose();
   }
-
+ 
+  // ─── Build ────────────────────────────────────────────────────────────────
+  // (Konten build() TIDAK BERUBAH — hanya _openTradingView yang dipatch)
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Header Section
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 48),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // Title dengan Icon
               Row(
                 children: [
                   Container(
@@ -140,9 +139,7 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
                       size: 28,
                     ),
                   ),
-                  
                   const SizedBox(width: 16),
-                  
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -154,7 +151,8 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
                       Text(
                         'Live Market Data • ${Timeframes.getLabel(selectedInterval)}',
                         style: TextStyle(
-                          color: StreetViewColorStyle.subtitleText.withOpacity(0.7),
+                          color: StreetViewColorStyle.subtitleText
+                              .withOpacity(0.7),
                           fontSize: 14,
                           fontWeight: FontWeight.w400,
                           letterSpacing: 0.3,
@@ -164,8 +162,6 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
                   ),
                 ],
               ),
-              
-              // Interval Selector, Search Bar & Stats
               Row(
                 children: [
                   _buildIntervalSelector(),
@@ -178,10 +174,9 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
             ],
           ),
         ),
-        
+ 
         const SizedBox(height: 32),
-        
-        // Horizontal Scrolling Crypto Cards
+ 
         if (!isInitialized)
           SizedBox(
             height: 320,
@@ -256,9 +251,11 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
               itemCount: filteredTickers.length,
               itemBuilder: (context, index) {
                 final ticker = filteredTickers[index];
-                final candles = cryptoHook.getCandles(ticker, selectedInterval);
-                final isReady = cryptoHook.isIntervalReady(ticker, selectedInterval);
-                
+                final candles =
+                    cryptoHook.getCandles(ticker, selectedInterval);
+                final isReady =
+                    cryptoHook.isIntervalReady(ticker, selectedInterval);
+ 
                 return Padding(
                   padding: EdgeInsets.only(
                     right: index < filteredTickers.length - 1 ? 20 : 0,
@@ -269,7 +266,7 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
                     index: index,
                     isReady: isReady,
                     interval: selectedInterval,
-                    onTap: () => _openTradingView(ticker), // PASS CALLBACK
+                    onTap: () => _openTradingView(ticker),
                   ),
                 );
               },
@@ -278,7 +275,7 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
       ],
     );
   }
-
+ 
   Widget _buildSearchBar() {
     return Container(
       width: 320,
@@ -325,7 +322,7 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
       ),
     );
   }
-
+ 
   Widget _buildStatsChip() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -358,7 +355,7 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
       ),
     );
   }
-
+ 
   Widget _buildIntervalSelector() {
     return Container(
       padding: const EdgeInsets.all(4),
@@ -374,13 +371,13 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
         children: Timeframes.common.map((interval) {
           final isSelected = selectedInterval == interval;
           final label = Timeframes.getLabel(interval);
-          
           return GestureDetector(
             onTap: () => _changeInterval(interval),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
-                color: isSelected 
+                color: isSelected
                     ? StreetViewColorStyle.greenNeon.withOpacity(0.2)
                     : Colors.transparent,
                 borderRadius: BorderRadius.circular(6),
@@ -388,11 +385,12 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
               child: Text(
                 label,
                 style: TextStyle(
-                  color: isSelected 
+                  color: isSelected
                       ? StreetViewColorStyle.greenNeon
                       : StreetViewColorStyle.subtitleText.withOpacity(0.6),
                   fontSize: 11,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  fontWeight:
+                      isSelected ? FontWeight.bold : FontWeight.w500,
                 ),
               ),
             ),
@@ -402,6 +400,7 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
     );
   }
 }
+
 
 class _CryptoCard extends StatefulWidget {
   final String ticker;

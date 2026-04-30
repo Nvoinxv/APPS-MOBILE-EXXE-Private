@@ -1,0 +1,88 @@
+EXXE News — Daily Report
+Generated : 2026-04-26 11:15:39
+Total     : 5 artikel
+======================================================================
+
+[1] BYD Atto 3 'Glow Up': SUV Listrik Gen Z Makin Panjang & Ngebut!
+──────────────────────────────────────────────────────────────────────
+📋 Guys, ada kabar gembira nih buat kamu yang lagi ngidam SUV listrik keren! BYD baru aja ngerilis Atto 3 generasi terbaru di Tiongkok, dan beneran bikin pangling. Desainnya sekarang makin panjang dan tajam, bikin tampilannya auto stylish dan futuristik. Yang paling bikin excited, mobil listrik ini udah support sistem flash charging ala BYD, jadi ngisi
+
+JUDUL: BYD Atto 3 'Glow Up': SUV Listrik Gen Z Makin Panjang & Ngebut!
+DESKRIPSI:
+Guys, ada kabar gembira nih buat kamu yang lagi ngidam SUV listrik keren! BYD baru aja ngerilis Atto 3 generasi terbaru di Tiongkok, dan beneran bikin pangling. Desainnya sekarang makin panjang dan tajam, bikin tampilannya auto stylish dan futuristik. Yang paling bikin excited, mobil listrik ini udah support sistem flash charging ala BYD, jadi ngisi
+
+Sumber    : thewest
+Tanggal   : 2026-04-25 23:04:04
+Link      : https://thewest.com.au/lifestyle/motoring/byd-atto-3-next-generation-electric-suv-revealed-in-china-c-22193987
+Sentiment : POSITIF  (conf=0.85  score=0.50)
+Owner     : EXXE News
+
+======================================================================
+
+[2] Trelleborg AB Bongkar Performa Q1 2026: Ada Apa Aja?
+──────────────────────────────────────────────────────────────────────
+📋 Guys, ada kabar penting nih dari Trelleborg AB! Pada tanggal 25 April 2026 lalu, perusahaan manufaktur global ini secara resmi merilis *slide deck* presentasi mereka sehubungan dengan *earnings call* kuartal pertama tahun 2026. Ini bukan sekadar info biasa, lho. Dok
+
+JUDUL: Trelleborg AB Bongkar Performa Q1 2026: Ada Apa Aja?
+DESKRIPSI:
+Guys, ada kabar penting nih dari Trelleborg AB! Pada tanggal 25 April 2026 lalu, perusahaan manufaktur global ini secara resmi merilis *slide deck* presentasi mereka sehubungan dengan *earnings call* kuartal pertama tahun 2026. Ini bukan sekadar info biasa, lho. Dok
+
+Sumber    : seekingalpha
+Tanggal   : 2026-04-25 23:12:59
+Link      : https://seekingalpha.com/article/4894354-trelleborg-ab-publ-2026-q1-results-earnings-call-presentation
+Sentiment : NETRAL  (conf=0.95  score=0.00)
+Owner     : EXXE News
+
+======================================================================
+
+[3] Gokil! Premier Eby & 900 Orang Kumpul, Ada Selfie Raksasa di Nanaimo!
+──────────────────────────────────────────────────────────────────────
+📋 Baru-baru ini, acara Nanaimo Infusion jadi sorotan banget karena berhasil ngumpulin sekitar 900 orang dalam satu momen epik! Bayangin, Premier B.C. Eby bareng para MLA dan ahli imigrasi ikutan lho, bikin acara ini makin berbobot. Mereka bukan cuma k
+
+JUDUL: Gokil! Premier Eby & 900 Orang Kumpul, Ada Selfie Raksasa di Nanaimo!
+
+DESKRIPSI:
+Baru-baru ini, acara Nanaimo Infusion jadi sorotan banget karena berhasil ngumpulin sekitar 900 orang dalam satu momen epik! Bayangin, Premier B.C. Eby bareng para MLA dan ahli imigrasi ikutan lho, bikin acara ini makin berbobot. Mereka bukan cuma k
+
+Sumber    : hopestandard
+Tanggal   : 2026-04-25 23:14:00
+Link      : https://hopestandard.com/2026/04/25/b-c-premier-eby-mlas-immigration-expert-at-nanaimo-infusion-event/
+Sentiment : NETRAL  (conf=0.65  score=0.00)
+Owner     : EXXE News
+
+======================================================================
+
+[4] Premier Eby & Ratusan Warga Kumpul, Selfie Bareng di Nanaimo: Ada Apa Tuh?
+──────────────────────────────────────────────────────────────────────
+📋 Gengs, ada kabar seru dari Nanaimo nih! Acara 'Nanaimo Infusion' baru-baru ini jadi magnet buat tokoh penting kayak Premier B.C. Eby, para MLA, dan seorang ahli imigrasi. Bayangin aja, sekitar 900 orang dari Amerika dan Kanada kumpul bareng, bahkan
+
+JUDUL: Premier Eby & Ratusan Warga Kumpul, Selfie Bareng di Nanaimo: Ada Apa Tuh?
+
+DESKRIPSI:
+Gengs, ada kabar seru dari Nanaimo nih! Acara 'Nanaimo Infusion' baru-baru ini jadi magnet buat tokoh penting kayak Premier B.C. Eby, para MLA, dan seorang ahli imigrasi. Bayangin aja, sekitar 900 orang dari Amerika dan Kanada kumpul bareng, bahkan
+
+Sumber    : abbynews
+Tanggal   : 2026-04-25 23:14:00
+Link      : https://abbynews.com/2026/04/25/b-c-premier-eby-mlas-immigration-expert-at-nanaimo-infusion-event/
+Sentiment : NETRAL  (conf=0.95  score=0.00)
+Owner     : EXXE News
+
+======================================================================
+
+[5] Chery Tiggo X Nongol! SUV Flagship 476 HP & 1500 KM, Nggak Kaleng-kaleng!
+──────────────────────────────────────────────────────────────────────
+📋 Gengs, siap-siap buat mobil baru yang bikin mata melotot! Chery baru aja ngebongkar habis-habisan SUV flagship mereka, yaitu Chery Tiggo X. Ini bukan SUV biasa, lho. Dengan tenaga gila 476 HP dan jarak
+
+JUDUL: Chery Tiggo X Nongol! SUV Flagship 476 HP & 1500 KM, Nggak Kaleng-kaleng!
+
+DESKRIPSI:
+Gengs, siap-siap buat mobil baru yang bikin mata melotot! Chery baru aja ngebongkar habis-habisan SUV flagship mereka, yaitu Chery Tiggo X. Ini bukan SUV biasa, lho. Dengan tenaga gila 476 HP dan jarak
+
+Sumber    : google
+Tanggal   : 2026-04-25 23:14:00
+Link      : https://news.google.com/rss/articles/CBMirAFBVV95cUxPcGpzdWQ5WGlBeHhMNHkydXFncXlUVGhqa2ROQXlnbFFLSEc1Z3VZc3p0TUJqLTc1NzBaRE83YUR3U0kxdHRqREZnTjBRMU1OU0pGb3FlQnBaQm04N0otS0hvUHRxV0VNeGc2eDEzeWI2VkhsSjZPTjZVRUJsN1VTVmJLYXVNbXRzUHE1RDRCUVNaLXR0d3hRaDBGSE1HZFFFZk4yYmlrSWdFWDdO?oc=5
+Sentiment : POSITIF  (conf=0.85  score=0.50)
+Owner     : EXXE News
+
+======================================================================
+

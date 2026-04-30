@@ -30,8 +30,11 @@ if _AI_DIR not in sys.path:
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from fastapi.responses import JSONResponse
+from middleware.jwt_dependency import require_internal_or_roles
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+from middleware.jwt_dependency import require_roles, Role
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Depends 
 
 try:
     from AI.AI_Generate_Text_News import AIGenerateTextNews, News_Model
@@ -202,7 +205,7 @@ def _results_to_response(results: list[News_Model]) -> GenerateNewsResponse:
     summary="Cek status AI News Generator service",
     description="Verifikasi apakah API key tersedia dan service siap digunakan.",
 )
-async def get_status() -> StatusResponse:
+async def get_status(user=Depends(require_roles(Role.ADMIN, Role.EXCLUSIVE))) -> StatusResponse:
     """
     Health-check ringan — hanya cek keberadaan env vars, tidak memanggil API eksternal.
     """
@@ -235,6 +238,7 @@ async def get_status() -> StatusResponse:
 )
 async def generate_news(
     body: GenerateNewsRequest = GenerateNewsRequest(),
+    user=Depends(require_roles(Role.ADMIN, Role.EXCLUSIVE))
 ) -> GenerateNewsResponse:
     """
     Pipeline standar AI Generate News.
@@ -284,7 +288,8 @@ async def generate_news(
         "termasuk jumlah artikel, kategori, dan bahasa secara eksplisit."
     ),
 )
-async def generate_news_custom(body: GenerateNewsRequest) -> GenerateNewsResponse:
+async def generate_news_custom(body: GenerateNewsRequest,
+                               user=Depends(require_roles(Role.ADMIN, Role.EXCLUSIVE))) -> GenerateNewsResponse:
     """
     Versi fleksibel dari /generate.
     Semua parameter wajib dikirim di request body.
@@ -309,6 +314,7 @@ async def generate_news_background(
         description="Koma-separated, misal: economy,technology",
     ),
     language:   str  = Query(default="en"),
+    user=Depends(require_internal_or_roles(Role.ADMIN, Role.EXCLUSIVE))
 ) -> JSONResponse:
     """
     Jalankan pipeline di background — response langsung 202 tanpa menunggu selesai.

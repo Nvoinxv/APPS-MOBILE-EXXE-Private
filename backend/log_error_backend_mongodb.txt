@@ -1,0 +1,1 @@
+backend_app  | INFO:     172.18.0.1:35248 - "POST /ai/news/generate HTTP/1.1" 500 Internal Server Error

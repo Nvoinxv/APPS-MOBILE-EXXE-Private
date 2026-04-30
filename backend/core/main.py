@@ -14,6 +14,7 @@ from controller.trade_ideas_controller import trade_ideas_route
 from controller.otp_controller import router_otp
 from controller.daily_research_controller import router_daily_research
 from controller.profile_controller import router_profile
+from controller.execute_controller import router_execute_controller
 
 # Bagian import router dari exxe quant core
 from ExxeQuantCore.router.base_signal_router import base_signal_router
@@ -80,6 +81,7 @@ app.include_router(market_outlook_route)
 app.include_router(router_research_coin)
 app.include_router(the_street_view_route)
 app.include_router(router_profile)
+app.include_router(router_execute_controller)
 
 # ExxeQuantCore
 app.include_router(base_signal_router, prefix="/api/v1/signal", tags=["Signal"])

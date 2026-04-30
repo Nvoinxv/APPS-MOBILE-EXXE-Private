@@ -6,7 +6,7 @@ from fastapi import (
 from bson import ObjectId
 from database.postgres_sql import Postgres_SQL
 from database.mongo_connection import MongoConnection
-from middleware.jwt_dependency import require_roles, Role, require_admin
+from middleware.jwt_dependency import require_roles, Role, require_admin, get_current_user
 from dotenv import load_dotenv
 from datetime import datetime, timezone
 import os
@@ -56,27 +56,58 @@ def safe_format_datetime(datetime_value):
 
 
 # =====================
-# PUBLIC – GET ALL
+# GET ALL – ROLE-BASED RESPONSE
+# =====================
+# GENERAL   → subset field saja (judul, sub_judul, date, images_path)
+#             field deskripsi & detail TIDAK dikirim
+# EXCLUSIVE → full data semua field
+# ADMIN     → full data semua field
+#
+# Semua role bisa akses endpoint ini.
+# Bedanya hanya di data yang di-return.
 # =====================
 @router_daily_research.get("/get-daily-research-exclusive")
 def get_all_research_daily(
-    user=Depends(require_roles(Role.ADMIN, Role.EXCLUSIVE))
+    user=Depends(require_roles(Role.ADMIN, Role.EXCLUSIVE, Role.GENERAL))
 ):
     exclusive, sql_con, _ = get_db_collections()
 
     try:
+        role = user.get("role", "").upper()
+        is_premium = role in ("ADMIN", "EXCLUSIVE")
+
         data = list(exclusive.find())
+        result = []
+
         for item in data:
             item["_id"] = str(item["_id"])
+
             # ✅ Safe date conversion
             if "date" in item:
                 item["date"] = safe_format_date(item["date"])
             if "created_at" in item:
                 item["created_at"] = safe_format_datetime(item["created_at"])
-        
+
+            if is_premium:
+                # EXCLUSIVE & ADMIN — semua field
+                result.append(item)
+            else:
+                # GENERAL — hanya field preview
+                result.append({
+                    "_id":         item["_id"],
+                    "judul":       item.get("judul"),
+                    "sub_judul":   item.get("sub_judul"),
+                    "date":        item.get("date"),
+                    "images_path": item.get("images_path"),
+                    "source":      item.get("source"),
+                    # Flag supaya Flutter tahu ini preview
+                    "is_preview":  True,
+                })
+
         return {
-            "status": "success",
-            "data": data
+            "status":     "success",
+            "is_premium": is_premium,
+            "data":       result,
         }
     finally:
         sql_con.close_connection()
@@ -97,10 +128,9 @@ def get_title_research(title: str,
         
         data["_id"] = str(data["_id"])
         
-        # ✅ KONSISTEN: Return single object di key "data"
         return {
             "status": "success",
-            "data": data  # Single object
+            "data": data
         }
     finally:
         sql_con.close_connection()
@@ -127,7 +157,6 @@ def upload_daily_research(
     try:
         user_id = current_user["id"]
 
-        # format tanggal
         try:
             formatted_date = datetime.strptime(Date, "%Y-%m-%d")
         except ValueError:
@@ -161,7 +190,6 @@ def upload_daily_research(
 
         result = exclusive.insert_one(daily_research_data)
 
-        # ✅ KONSISTEN: Return object di key "data"
         return {
             "status": "success",
             "message": f"Daily Research '{title}' berhasil diupload",
@@ -202,7 +230,6 @@ def delete_research_daily(
         if result.deleted_count == 0:
             raise HTTPException(status_code=404, detail="Data tidak ditemukan")
 
-        # ✅ KONSISTEN: Return null di key "data" untuk delete
         return {
             "status": "success",
             "message": "Daily research berhasil dihapus",
@@ -243,7 +270,6 @@ def get_research_daily_with_uploader():
                 "header": {
                     "title": doc.get("judul"),
                     "sub_title": doc.get("sub_judul"),
-                    # ✅ Safe date handling
                     "date": safe_format_date(doc.get("date"))
                 },
                 "content": {
@@ -256,15 +282,13 @@ def get_research_daily_with_uploader():
                     "video_path": doc.get("video_path")
                 },
                 "source": doc.get("source"),
-                # ✅ Safe datetime handling
                 "created_at": safe_format_datetime(doc.get("created_at")),
                 "uploader_info": uploader
             })
 
-        # ✅ KONSISTEN: Selalu return array di key "data"
         return {
             "status": "success",
-            "data": hasil  # Array langsung
+            "data": hasil
         }
 
     finally:

@@ -1,8 +1,0 @@
-gw menemukan bug yang dimana, apps gw setelah register jika 
-gw pencet bagian kek sign up atau apa lah itu malah masuk ke home pages
-padahal harus nya balik lagi ke login bukan home pages. Ini masalah klasik
-di frontend. Jadi fix nya itu di bagian frontend! Dan bagian yang paling
-krusial itu otp sih kalau dari analisa gw.
-
-Lalu kalau general gak bisa langsung masuk ke home_page exclsuive nya. Perlu
-jadi exclusive kecuali role admin bebas mau exclusive atau general.

@@ -295,17 +295,32 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildPageContent() {
     switch (_currentPage) {
-      case 'quant_trade_page':
-        return CustomScrollView(
-          controller: _quantTradeScrollController,
-          physics: const BouncingScrollPhysics(),
-          slivers: [
-            SliverToBoxAdapter(child: Container(key: _quantKey, padding: const EdgeInsets.symmetric(vertical: 40), color: const Color(0xFF0A0A0A), child: QuantInvestingSection(token: widget.token))),
-            const SliverToBoxAdapter(child: SizedBox(height: 60)),
-            SliverToBoxAdapter(child: Container(key: _tradeIdeasKey, padding: const EdgeInsets.symmetric(vertical: 40), color: const Color(0xFF0A0A0A), child: TradeIdeasSection(token: widget.token))),
-            const SliverToBoxAdapter(child: SizedBox(height: 60)),
-          ],
-        );
+          case 'quant_trade_page':
+      return CustomScrollView(
+        controller: _quantTradeScrollController,
+        physics:    const BouncingScrollPhysics(),
+        slivers: [
+          SliverToBoxAdapter(
+            child: Container(
+              key:     _quantKey,
+              padding: const EdgeInsets.symmetric(vertical: 40),
+              color:   const Color(0xFF0A0A0A),
+              child:   QuantInvestingSection(token: widget.token),
+            ),
+          ),
+          const SliverToBoxAdapter(child: SizedBox(height: 60)),
+          SliverToBoxAdapter(
+            child: Container(
+              key:     _tradeIdeasKey,
+              padding: const EdgeInsets.symmetric(vertical: 40),
+              color:   const Color(0xFF0A0A0A),
+              child:   TradeIdeasSection(token: widget.token),
+            ),
+          ),
+          const SliverToBoxAdapter(child: SizedBox(height: 60)),
+        ],
+      );
+
       case 'research_coin':
         return ResearchCoinSection(token: widget.token);
       case 'market_outlook_page':
@@ -315,7 +330,7 @@ class _HomeScreenState extends State<HomeScreen> {
           slivers: [
             SliverToBoxAdapter(child: Container(key: _marketOutlookKey, padding: const EdgeInsets.symmetric(vertical: 40), color: const Color(0xFF0A0A0A), child: MarketOutlookSection(token: widget.token))),
             const SliverToBoxAdapter(child: SizedBox(height: 60)),
-            SliverToBoxAdapter(child: Container(key: _streetViewKey, padding: const EdgeInsets.symmetric(vertical: 40), color: const Color(0xFF0A0A0A), child: CryptoStreetViewSection())),
+            SliverToBoxAdapter(child: Container(key: _streetViewKey, padding: const EdgeInsets.symmetric(vertical: 40), color: const Color(0xFF0A0A0A), child: CryptoStreetViewSection(token: widget.token))),
             const SliverToBoxAdapter(child: SizedBox(height: 60)),
           ],
         );

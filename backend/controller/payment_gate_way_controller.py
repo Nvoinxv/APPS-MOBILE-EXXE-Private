@@ -7,6 +7,7 @@ from controller.autentikasi_controller import router_autentikasi
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import time
+from dateutil.relativedelta import relativedelta
 
 # Kita set lokasi .env nya
 # biar si python nya ngerti di mana lokasi .env nya
@@ -132,15 +133,13 @@ async def checkout(amount: int,
 async def payment_notification(request: Request):
     data = await request.json()
     
-    # Ambil status transaksinya
     transaction_status = data.get('transaction_status')
     order_id = data.get('order_id')
     
-    # koneksi ke database dulu yakan
-    connection, cursor = Postgres_SQL()
+    connection = Postgres_SQL()
+    cursor = connection.get_connection().cursor()
 
     try:
-        # Ambil data transaksi dari database
         cursor.execute(
             "SELECT user_email, plan_type, status FROM transactions WHERE order_id = %s",
             (order_id,)
@@ -148,54 +147,63 @@ async def payment_notification(request: Request):
         result = cursor.fetchone()
         
         if not result:
-            print(f"Order tidak ditemukan: {order_id}")
             return {"status": "order_not_found"}
         
-        # Handle result dict atau tuple
         if isinstance(result, dict):
             user_email = result['user_email']
             plan_type = result['plan_type']
-            current_status = result['status']
         else:
-            user_email, plan_type, current_status = result[0], result[1], result[2]
+            user_email, plan_type, _ = result[0], result[1], result[2]
         
-        # Kalau transaksi sukses (settlement)
         if transaction_status == 'settlement':
-            # Update status transaksi jadi PAID
             cursor.execute(
                 "UPDATE transactions SET status = %s, updated_at = %s WHERE order_id = %s",
                 ('paid', datetime.now(), order_id)
             )
-            
-            # Upgrade user ke EXCLUSIVE
+
             months = PLAN_PRICING[plan_type]["months"]
-            days_to_limit = months * 30
-            exclusive_until = datetime.now() + timedelta(days=days_to_limit)
-            
+            now = datetime.now()
+
+            # ✅ Cek apakah user masih punya sisa waktu exclusive
+            cursor.execute(
+                "SELECT role, exclusive_until FROM users WHERE email = %s",
+                (user_email,)
+            )
+            user_data = cursor.fetchone()
+
+            if isinstance(user_data, dict):
+                current_role = user_data['role']
+                current_until = user_data['exclusive_until']
+            else:
+                current_role, current_until = user_data[0], user_data[1]
+
+            # ✅ Perpanjang dari sisa waktu, bukan dari sekarang
+            if current_role == UserRole.EXCLUSIVE and current_until and current_until > now:
+                base_date = current_until
+            else:
+                base_date = now
+
+            # ✅ relativedelta: 1 bulan = bulan kalender, bukan 30 hari
+            exclusive_until = base_date + relativedelta(months=months)
+
             cursor.execute(
                 "UPDATE users SET role = %s, exclusive_until = %s WHERE email = %s",
                 (UserRole.EXCLUSIVE, exclusive_until, user_email)
             )
             
             connection.get_connection().commit()
-            print(f"✅ Pembayaran sukses! User {user_email} sekarang EXCLUSIVE sampai {exclusive_until}")
-        
-        # Kalau transaksi gagal
+
         elif transaction_status in ['cancel', 'deny', 'expire']:
             cursor.execute(
                 "UPDATE transactions SET status = %s, updated_at = %s WHERE order_id = %s",
                 ('failed', datetime.now(), order_id)
             )
             connection.get_connection().commit()
-            print(f"❌ Pembayaran gagal: {order_id}")
         
         return {"status": "ok"}
     
     except Exception as e:
         connection.get_connection().rollback()
-        print(f"Error processing webhook: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-    
     finally:
         connection.close_connection()
-

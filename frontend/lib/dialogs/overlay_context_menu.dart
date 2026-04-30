@@ -7,41 +7,61 @@
 
 import 'package:flutter/material.dart';
 
+// ── OverlayContextAction — model untuk extra menu items ──────────────────────
+// Dipakai oleh tool-specific code (contoh: Fibonacci "Edit Colors…")
+// untuk inject item tambahan ke context menu tanpa mengubah core logic.
+
+class OverlayContextAction {
+  final String       label;
+  final IconData     icon;
+  final VoidCallback onTap;
+  final Color?       color;
+
+  const OverlayContextAction({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+    this.color,
+  });
+}
+
+// ── OverlayContextMenu ────────────────────────────────────────────────────────
+
 class OverlayContextMenu {
   // ── Color tokens ────────────────────────────────────────────────────────────
-  static const bgColor      = Color(0xFF0E1117);
-  static const borderColor  = Color(0xFF1E2333);
-  static const accentGreen  = Color(0xFF00D09C);
-  static const accentRed    = Color(0xFFFF4D6D);
-  static const accentAmber  = Color(0xFFFFB347);
-  static const textPrimary  = Color(0xFFE8EAF0);
-  static const textMuted    = Color(0xFF6B7280);
-  static const hoverColor   = Color(0xFF161B27);
+  static const bgColor     = Color(0xFF0E1117);
+  static const borderColor = Color(0xFF1E2333);
+  static const accentGreen = Color(0xFF00D09C);
+  static const accentRed   = Color(0xFFFF4D6D);
+  static const accentAmber = Color(0xFFFFB347);
+  static const textPrimary = Color(0xFFE8EAF0);
+  static const textMuted   = Color(0xFF6B7280);
+  static const hoverColor  = Color(0xFF161B27);
 
   static const _menuW = 210.0;
-  static const _menuH = 300.0;
+  static const _menuH = 320.0; // sedikit lebih tinggi buat extra actions
 
   /// Tampilkan context menu di posisi [globalPosition].
   ///
-  /// [hasTarget]    — true jika klik mengenai overlay (tampilkan Copy/Clone/Reverse/Delete)
-  /// [hasClipboard] — true jika ada sesuatu di clipboard internal (tampilkan Paste aktif)
+  /// [hasTarget]    — true jika klik mengenai overlay
+  /// [hasClipboard] — true jika ada sesuatu di clipboard internal
+  /// [extraActions] — optional list item tambahan tool-specific (inject sebelum Delete)
   static void show({
-    required BuildContext context,
-    required Offset       globalPosition,
-    required bool         hasTarget,
-    required bool         hasClipboard,
-    bool                  isLocked    = false,
-    VoidCallback?         onCopy,
-    VoidCallback?         onClone,
-    VoidCallback?         onReverse,
-    VoidCallback?         onPaste,
-    VoidCallback?         onDelete,
-    VoidCallback?         onLock,
+    required BuildContext            context,
+    required Offset                  globalPosition,
+    required bool                    hasTarget,
+    required bool                    hasClipboard,
+    bool                             isLocked     = false,
+    VoidCallback?                    onCopy,
+    VoidCallback?                    onClone,
+    VoidCallback?                    onReverse,
+    VoidCallback?                    onPaste,
+    VoidCallback?                    onDelete,
+    VoidCallback?                    onLock,
+    List<OverlayContextAction>?      extraActions,   // ← TAMBAH
   }) {
-    // Guard: tidak ada yang bisa dilakukan → jangan tampilkan
     if (!hasTarget && !hasClipboard) return;
 
-    // Pastikan menu tidak keluar layar
     final size = MediaQuery.of(context).size;
     final dx   = (globalPosition.dx + _menuW > size.width)
         ? globalPosition.dx - _menuW
@@ -65,6 +85,7 @@ class OverlayContextMenu {
         onPaste:      onPaste,
         onDelete:     onDelete,
         onLock:       onLock,
+        extraActions: extraActions ?? const [],
       ),
     );
   }
@@ -73,22 +94,24 @@ class OverlayContextMenu {
 // ── Dialog wrapper ─────────────────────────────────────────────────────────────
 
 class _ContextMenuDialog extends StatelessWidget {
-  final Offset        position;
-  final bool          hasTarget;
-  final bool          hasClipboard;
-  final bool          isLocked;
-  final VoidCallback? onCopy;
-  final VoidCallback? onClone;
-  final VoidCallback? onReverse;
-  final VoidCallback? onPaste;
-  final VoidCallback? onDelete;
-  final VoidCallback? onLock;
+  final Offset                    position;
+  final bool                      hasTarget;
+  final bool                      hasClipboard;
+  final bool                      isLocked;
+  final VoidCallback?             onCopy;
+  final VoidCallback?             onClone;
+  final VoidCallback?             onReverse;
+  final VoidCallback?             onPaste;
+  final VoidCallback?             onDelete;
+  final VoidCallback?             onLock;
+  final List<OverlayContextAction> extraActions;
 
   const _ContextMenuDialog({
     required this.position,
     required this.hasTarget,
     required this.hasClipboard,
     required this.isLocked,
+    required this.extraActions,
     this.onCopy,
     this.onClone,
     this.onReverse,
@@ -101,7 +124,6 @@ class _ContextMenuDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // Tap / right-click di luar → tutup
         Positioned.fill(
           child: GestureDetector(
             onTap:          () => Navigator.of(context).pop(),
@@ -152,7 +174,7 @@ class _ContextMenuDialog extends StatelessWidget {
                 ),
               ],
 
-              // ── Paste (selalu tampil, disabled kalau clipboard kosong) ───
+              // ── Paste ────────────────────────────────────────────────────
               _MenuItem(
                 icon:     Icons.content_paste_rounded,
                 label:    'Paste',
@@ -165,6 +187,20 @@ class _ContextMenuDialog extends StatelessWidget {
               ),
 
               if (hasTarget) ...[
+                // ── Extra tool-specific actions (inject di sini) ──────────
+                if (extraActions.isNotEmpty) ...[
+                  const _MenuDivider(),
+                  ...extraActions.map((action) => _MenuItem(
+                    icon:  action.icon,
+                    label: action.label,
+                    color: action.color ?? OverlayContextMenu.textPrimary,
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      action.onTap();
+                    },
+                  )),
+                ],
+
                 const _MenuDivider(),
 
                 // ── Lock / Unlock ────────────────────────────────────────

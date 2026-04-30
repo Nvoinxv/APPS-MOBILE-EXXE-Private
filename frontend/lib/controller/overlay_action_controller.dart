@@ -8,7 +8,6 @@ import 'cloneable_overlay.dart';
 import '../dialogs/overlay_context_menu.dart';
 
 class OverlayActionController<T extends CloneableOverlay<T>> {
-
   T? _clipboard;
 
   bool get hasClipboard => _clipboard != null;
@@ -17,7 +16,6 @@ class OverlayActionController<T extends CloneableOverlay<T>> {
   // ---------------------------------------------------------------------------
   // Copy
   // ---------------------------------------------------------------------------
-
   void copy(T overlay) {
     _clipboard = overlay.copyWith();
   }
@@ -25,7 +23,6 @@ class OverlayActionController<T extends CloneableOverlay<T>> {
   // ---------------------------------------------------------------------------
   // Clone
   // ---------------------------------------------------------------------------
-
   T? clone(
     T overlay, {
     double candleOffset = 8.0,
@@ -40,7 +37,6 @@ class OverlayActionController<T extends CloneableOverlay<T>> {
   // ---------------------------------------------------------------------------
   // Paste
   // ---------------------------------------------------------------------------
-
   T? paste({
     double candleOffset = 5.0,
     double priceOffset  = 0.0,
@@ -56,29 +52,30 @@ class OverlayActionController<T extends CloneableOverlay<T>> {
   // ---------------------------------------------------------------------------
   // Reverse
   // ---------------------------------------------------------------------------
-
   T reverse(T overlay) => overlay.reverse();
 
   // ---------------------------------------------------------------------------
   // Clear clipboard
   // ---------------------------------------------------------------------------
-
   void clearClipboard() => _clipboard = null;
 
   // ---------------------------------------------------------------------------
   // handleRightClick — tampilkan OverlayContextMenu, return true jika dikonsumsi
+  //
+  // [extraActions] — optional list item tambahan yang di-inject tool-specific
+  //                  (contoh: Fibonacci "Edit Colors…")
   // ---------------------------------------------------------------------------
-
   bool handleRightClick({
-    required BuildContext     context,
-    required Offset           globalPosition,
-    required T?               hitOverlay,
-    required void Function(T) onClone,
-    required void Function(T) onReverse,
-    required void Function()  onDelete,
-    required void Function()  onPaste,
-    VoidCallback?             onLock,
-    bool                      isLocked = false,
+    required BuildContext              context,
+    required Offset                    globalPosition,
+    required T?                        hitOverlay,
+    required void Function(T)          onClone,
+    required void Function(T)          onReverse,
+    required void Function()           onDelete,
+    required void Function()           onPaste,
+    VoidCallback?                      onLock,
+    bool                               isLocked     = false,
+    List<OverlayContextAction>?        extraActions,  // ← TAMBAH
   }) {
     if (hitOverlay == null && !hasClipboard) return false;
 
@@ -88,6 +85,7 @@ class OverlayActionController<T extends CloneableOverlay<T>> {
       hasTarget:      hitOverlay != null,
       hasClipboard:   hasClipboard,
       isLocked:       isLocked,
+      extraActions:   extraActions,              // ← forward ke menu
       onCopy: hitOverlay != null
           ? () => copy(hitOverlay)
           : null,
@@ -109,7 +107,6 @@ class OverlayActionController<T extends CloneableOverlay<T>> {
       onDelete: hitOverlay != null ? onDelete : null,
       onLock:   hitOverlay != null ? onLock   : null,
     );
-
     return true;
   }
 }

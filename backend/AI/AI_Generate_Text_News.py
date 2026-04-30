@@ -181,25 +181,15 @@ _DESC_MAX_CHARS = 600
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _save_to_mongo(results: list["News_Model"]) -> dict[str, int]:
-    """
-    Simpan list[News_Model] ke MongoDB collection news_general.
-
-    Strategi  : upsert by Original_Link — kalau URL sudah ada, skip (setOnInsert).
-    Collection: news_general (berita dari sumber luar yang di-generate ulang).
-
-    Returns
-    -------
-    dict ringkasan: {"inserted": N, "skipped": N, "errors": N}
-    """
     if not _MONGO_AVAILABLE:
         print("[MONGO] ⚠️  MongoConnection tidak tersedia — skip save ke DB.")
         return {"inserted": 0, "skipped": 0, "errors": 0}
 
-    summary = {"inserted": 0, "skipped": 0, "errors": 0}
+    summary = {"inserted": 0, "updated": 0, "errors": 0}
 
     try:
         mongo = MongoConnection()
-        col   = mongo.collection_news_general   # ← collection target
+        col   = mongo.collection_news_general
 
         for news in results:
             doc = news.to_dict()
@@ -222,29 +212,31 @@ def _save_to_mongo(results: list["News_Model"]) -> dict[str, int]:
                 continue
 
             try:
-                result = col.update_one(
-                    filter = {"Original_Link": original_link},
-                    update = {"$setOnInsert": doc},   # insert hanya kalau belum ada
-                    upsert = True,
-                )
+                # Cek dulu apakah dokumen sudah ada
+                existing = col.find_one({"Original_Link": original_link}, {"_id": 1})
 
-                if result.upserted_id is not None:
-                    summary["inserted"] += 1
-                    print(f"  [MONGO] ✓ Inserted  : {news.Title[:55]}")
+                if existing:
+                    # Update semua field kecuali _id
+                    col.update_one(
+                        {"Original_Link": original_link},
+                        {"$set": doc}   # ← update konten terbaru
+                    )
+                    summary["updated"] += 1
+                    print(f"  [MONGO] ↺ Updated    : {news.Title[:55]}")
                 else:
-                    summary["skipped"] += 1
-                    print(f"  [MONGO] ↷ Skipped   : {news.Title[:55]}  (duplikat)")
+                    col.insert_one(doc)
+                    summary["inserted"] += 1
+                    print(f"  [MONGO] ✓ Inserted   : {news.Title[:55]}")
 
             except Exception as e:
                 summary["errors"] += 1
-                print(f"  [MONGO] ✗ Upsert error '{news.Title[:45]}': {e}")
+                print(f"  [MONGO] ✗ Error '{news.Title[:45]}': {e}")
 
     except Exception as e:
         print(f"[MONGO] ✗ Gagal koneksi ke MongoDB: {e}")
         summary["errors"] += len(results)
 
     return summary
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # AI GENERATE TEXT NEWS
@@ -379,9 +371,9 @@ class AIGenerateTextNews:
             mongo_summary = _save_to_mongo(results)
             print(
                 f"[STEP 3] ✓ Selesai — "
-                f"inserted={mongo_summary['inserted']}  "
-                f"skipped={mongo_summary['skipped']}  "
-                f"errors={mongo_summary['errors']}"
+                f"inserted={mongo_summary.get('inserted', 0)}  "
+                f"updated={mongo_summary.get('updated', 0)}  "
+                f"errors={mongo_summary.get('errors', 0)}"
             )
         else:
             print("\n[STEP 3] Skip MongoDB (save_to_mongo=False).")

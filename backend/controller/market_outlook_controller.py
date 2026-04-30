@@ -28,28 +28,53 @@ def get_connection():
 
 
 # ===============================
-# GET ALL (REQUIRES AUTH)
-# ✅ FIXED: Returns list inside data field
+# GET ALL – ROLE-BASED RESPONSE
+# ===============================
+# GENERAL   → preview field saja (title, Isi_1, Images_1, Date, Source)
+#             is_preview: True → Flutter tahu ini preview
+# EXCLUSIVE → full data semua field
+# ADMIN     → full data semua field
+#
+# Semua role bisa akses, backend yang filter datanya.
 # ===============================
 @market_outlook_route.get("/market-outlook-exclusive")
 def get_all_market_outlook(
-    user=Depends(require_roles(Role.ADMIN, Role.EXCLUSIVE))
+    user=Depends(require_roles(Role.ADMIN, Role.EXCLUSIVE, Role.GENERAL))
 ):
     exclusive, sql, cursor = get_connection()
     try:
+        role = user.get("role", "").upper()
+        is_premium = role in ("ADMIN", "EXCLUSIVE")
+
         data = []
         for doc in exclusive.find():
             doc["_id"] = str(doc["_id"])
-            # ✅ Convert datetime to string for JSON serialization
+
+            # ✅ Convert datetime to string
             if "Date" in doc and isinstance(doc["Date"], datetime):
                 doc["Date"] = doc["Date"].strftime("%Y-%m-%d")
             if "created_at" in doc and isinstance(doc["created_at"], datetime):
                 doc["created_at"] = doc["created_at"].isoformat()
-            data.append(doc)
+
+            if is_premium:
+                # EXCLUSIVE & ADMIN — semua field
+                data.append(doc)
+            else:
+                # GENERAL — hanya field preview
+                data.append({
+                    "_id":        doc["_id"],
+                    "title":      doc.get("title") or doc.get("Judul"),
+                    "Isi_1":      doc.get("Isi_1"),
+                    "Images_1":   doc.get("Images_1"),
+                    "Date":       doc.get("Date"),
+                    "Source":     doc.get("Source"),
+                    "is_preview": True,
+                })
 
         return {
-            "status": "success",
-            "data": data  # ✅ Always returns list
+            "status":     "success",
+            "is_premium": is_premium,
+            "data":       data,
         }
     finally:
         sql.close_connection()
@@ -57,7 +82,6 @@ def get_all_market_outlook(
 
 # ===============================
 # GET BY TITLE (REQUIRES AUTH)
-# ✅ FIXED: Returns single object inside data field
 # ===============================
 @market_outlook_route.get("/market-outlook-exclusive/title")
 def get_by_title(
@@ -67,23 +91,22 @@ def get_by_title(
     exclusive, sql, cursor = get_connection()
     try:
         doc = exclusive.find_one({"Judul": title})
-        
+
         if not doc:
             return {
                 "status": "success",
-                "data": None  # ✅ Explicit null when not found
+                "data": None
             }
 
         doc["_id"] = str(doc["_id"])
-        # ✅ Convert datetime to string
         if "Date" in doc and isinstance(doc["Date"], datetime):
             doc["Date"] = doc["Date"].strftime("%Y-%m-%d")
         if "created_at" in doc and isinstance(doc["created_at"], datetime):
             doc["created_at"] = doc["created_at"].isoformat()
-        
+
         return {
             "status": "success",
-            "data": doc  # ✅ Single object
+            "data": doc
         }
     finally:
         sql.close_connection()
@@ -91,7 +114,6 @@ def get_by_title(
 
 # ===============================
 # UPLOAD (ADMIN ONLY)
-# ✅ FIXED: Consistent response structure
 # ===============================
 @market_outlook_route.post("/market-outlook-exclusive")
 def upload_market_outlook(
@@ -113,13 +135,11 @@ def upload_market_outlook(
     try:
         user_id = current_user["id"]
 
-        # Format tanggal
         try:
             publish_date = datetime.strptime(Date, "%Y-%m-%d")
         except ValueError:
             raise HTTPException(400, "Invalid date format. Use YYYY-MM-DD")
 
-        # Folder upload
         upload_dir = "market_outlook_path"
         os.makedirs(upload_dir, exist_ok=True)
 
@@ -136,24 +156,24 @@ def upload_market_outlook(
 
         data = {
             "sql_user_id": user_id,
-            "Judul": title,
-            "Date": publish_date,
-            "Isi_1": Isi_1,
-            "Isi_2": Isi_2,
-            "Isi_3": Isi_3,
-            "Images_1": img1,
-            "Images_2": img2,
-            "Images_3": img3,
-            "Video": video_path,
+            "Judul":       title,
+            "Date":        publish_date,
+            "Isi_1":       Isi_1,
+            "Isi_2":       Isi_2,
+            "Isi_3":       Isi_3,
+            "Images_1":    img1,
+            "Images_2":    img2,
+            "Images_3":    img3,
+            "Video":       video_path,
             "Video_Drive": Video_Drive,
-            "Source": Source,
-            "created_at": datetime.now(timezone.utc)
+            "Source":      Source,
+            "created_at":  datetime.now(timezone.utc)
         }
 
         result = exclusive.insert_one(data)
 
         return {
-            "status": "success",
+            "status":  "success",
             "message": "Market outlook berhasil diupload",
             "data": {
                 "id": str(result.inserted_id)
@@ -181,7 +201,7 @@ def delete_market_outlook(
             raise HTTPException(404, "Data tidak ditemukan")
 
         return {
-            "status": "success",
+            "status":  "success",
             "message": "Market outlook berhasil dihapus"
         }
 
@@ -191,7 +211,6 @@ def delete_market_outlook(
 
 # ===============================
 # GET WITH UPLOADER INFO (PUBLIC)
-# ✅ FIXED: Returns list inside data field
 # ===============================
 @market_outlook_route.get("/market-outlook-exclusive/full")
 def get_market_outlook_with_uploader():
@@ -208,59 +227,49 @@ def get_market_outlook_with_uploader():
             )
             user = cursor.fetchone()
 
-            # ✅ Handle both dict and tuple responses
             if isinstance(user, dict):
                 uploader = {
-                    "name": user.get('name', 'Unknown'),
-                    "email": user.get('email', 'N/A'),
-                    "role": user.get('role', 'N/A')
+                    "name":  user.get("name", "Unknown"),
+                    "email": user.get("email", "N/A"),
+                    "role":  user.get("role", "N/A"),
                 }
             elif user:
-                uploader = {
-                    "name": user[0],
-                    "email": user[1],
-                    "role": user[2]
-                }
+                uploader = {"name": user[0], "email": user[1], "role": user[2]}
             else:
-                uploader = {
-                    "name": "Unknown",
-                    "email": "N/A",
-                    "role": "N/A"
-                }
+                uploader = {"name": "Unknown", "email": "N/A", "role": "N/A"}
 
-            # ✅ Convert datetime to string
             date_str = doc.get("Date")
             if isinstance(date_str, datetime):
                 date_str = date_str.strftime("%Y-%m-%d")
-            
+
             created_at_str = doc.get("created_at")
             if isinstance(created_at_str, datetime):
                 created_at_str = created_at_str.isoformat()
 
             hasil.append({
                 "mongo_id": str(doc["_id"]),
-                "title": doc.get("Judul"),
-                "date": date_str,
+                "title":    doc.get("Judul"),
+                "date":     date_str,
                 "content": {
                     "section_1": doc.get("Isi_1"),
                     "section_2": doc.get("Isi_2"),
-                    "section_3": doc.get("Isi_3")
+                    "section_3": doc.get("Isi_3"),
                 },
                 "media": {
-                    "image_1": doc.get("Images_1"),
-                    "image_2": doc.get("Images_2"),
-                    "image_3": doc.get("Images_3"),
+                    "image_1":    doc.get("Images_1"),
+                    "image_2":    doc.get("Images_2"),
+                    "image_3":    doc.get("Images_3"),
                     "video_local": doc.get("Video"),
-                    "video_drive": doc.get("Video_Drive")
+                    "video_drive": doc.get("Video_Drive"),
                 },
-                "source": doc.get("Source"),
+                "source":     doc.get("Source"),
                 "created_at": created_at_str,
-                "uploader": uploader
+                "uploader":   uploader,
             })
 
         return {
             "status": "success",
-            "data": hasil  # ✅ Always returns list
+            "data":   hasil,
         }
 
     finally:

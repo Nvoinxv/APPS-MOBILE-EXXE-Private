@@ -24,32 +24,32 @@ class _RadialCircleMenuState extends State<RadialCircleMenu>
   Animation<double>? _rotationAnimation;
 
   // 🔴 DEBUG MODE - Set true untuk lihat posisi
-  static const bool DEBUG_MODE = true;
+  static const bool DEBUG_MODE = false;
 
   // MANUAL POSITIONING - Test values
   final List<RadialMenuItem> _menuItems = [
-    RadialMenuItem(
-      icon: Icons.lightbulb_outline,
-      label: 'Trade Ideas',
-      section: 'trade_ideas',
-      offsetX: -100.0,  // KIRI
-      offsetY: 20.0,    
-    ),
-    RadialMenuItem(
-      icon: Icons.trending_up_outlined,
-      label: 'Market',
-      section: 'market_outlook',
-      offsetX: 0.0,     // TENGAH
-      offsetY: 100.0,   
-    ),
-    RadialMenuItem(
-      icon: Icons.search_outlined,
-      label: 'Research Coin',
-      section: 'research_coin',
-      offsetX: 100.0,   // KANAN
-      offsetY: 20.0,    
-    ),
-  ];
+  RadialMenuItem(
+    icon: Icons.lightbulb_outline,
+    label: 'Trade Ideas',
+    section: 'trade_ideas',
+    offsetX: -120.0,  // KIRI
+    offsetY: 60.0,    
+  ),
+  RadialMenuItem(
+    icon: Icons.trending_up_outlined,
+    label: 'Market',
+    section: 'market_outlook',
+    offsetX: 0.0,     // TENGAH PUNCAK
+    offsetY: 140.0,   
+  ),
+  RadialMenuItem(
+    icon: Icons.search_outlined,
+    label: 'Research Coin',
+    section: 'research_coin',
+    offsetX: 120.0,   // KANAN
+    offsetY: 60.0,    
+  ),
+];
 
   @override
   void initState() {

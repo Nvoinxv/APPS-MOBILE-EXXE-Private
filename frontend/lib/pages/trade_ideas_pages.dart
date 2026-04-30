@@ -2,64 +2,59 @@ import 'package:flutter/material.dart';
 import '../hooks/trade_ideas_hook.dart';
 import '../style/apps_colors_trade_ideas.dart';
 import '../postingan/trade_ideas_postingan.dart';
-
+import '../utils/role_guard.dart';
+ 
 class TradeIdeasSection extends StatefulWidget {
   final String token;
-  
+ 
   const TradeIdeasSection({
     super.key,
     required this.token,
   });
-  
+ 
   @override
   State<TradeIdeasSection> createState() => _TradeIdeasSectionState();
 }
-
+ 
 class _TradeIdeasSectionState extends State<TradeIdeasSection> {
-  List<Map<String, dynamic>> tradeIdeasList = [];
+  List<Map<String, dynamic>> tradeIdeasList    = [];
   List<Map<String, dynamic>> filteredTradeIdeas = [];
   bool isLoading = true;
+ 
   final TextEditingController _searchController = TextEditingController();
-
+ 
+  late final RolePermission _perm;
+ 
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _perm = RolePermission.of(widget.token);
     _searchController.addListener(_filterTradeIdeas);
+    if (_perm.canView) _loadData();
   }
-
+ 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
   }
-
+ 
   Future<void> _loadData() async {
     setState(() => isLoading = true);
-    
     try {
       final result = await Trade_Ideas_Hook.GetAllTradeIdeas(
         token: widget.token,
       );
-      
-      print("📡 Trade Ideas API Response: $result");
-      
       if (result['success'] == true) {
         final data = result['data'];
-        
         if (data is List) {
           setState(() {
             tradeIdeasList = data.map((item) {
-              if (item is Map<String, dynamic>) {
-                return item;
-              }
-              return <String, dynamic>{};
+              return item is Map<String, dynamic> ? item : <String, dynamic>{};
             }).toList();
             filteredTradeIdeas = tradeIdeasList;
             isLoading = false;
           });
-          
-          print("✅ Loaded ${tradeIdeasList.length} trade ideas");
         } else {
           setState(() => isLoading = false);
         }
@@ -67,148 +62,78 @@ class _TradeIdeasSectionState extends State<TradeIdeasSection> {
         setState(() => isLoading = false);
       }
     } catch (e) {
-      print("❌ Error loading trade ideas: $e");
+      print('❌ Error loading trade ideas: $e');
       setState(() => isLoading = false);
     }
   }
-
+ 
   void _filterTradeIdeas() {
     final query = _searchController.text.toLowerCase();
     setState(() {
-      if (query.isEmpty) {
-        filteredTradeIdeas = tradeIdeasList;
-      } else {
-        filteredTradeIdeas = tradeIdeasList.where((trade) {
-          final tradeIdea = (trade['Trade_idea'] ?? '').toString().toLowerCase();
-          final tipeTrade = (trade['Tipe_trade'] ?? '').toString().toLowerCase();
-          final aktivasi = (trade['Aktivasi'] ?? '').toString().toLowerCase();
-          
-          return tradeIdea.contains(query) || 
-                 tipeTrade.contains(query) || 
-                 aktivasi.contains(query);
-        }).toList();
-      }
+      filteredTradeIdeas = query.isEmpty
+          ? tradeIdeasList
+          : tradeIdeasList.where((trade) {
+              final tradeIdea = (trade['Trade_idea'] ?? '').toString().toLowerCase();
+              final tipeTrade = (trade['Tipe_trade'] ?? '').toString().toLowerCase();
+              final aktivasi  = (trade['Aktivasi']   ?? '').toString().toLowerCase();
+              return tradeIdea.contains(query) ||
+                  tipeTrade.contains(query) ||
+                  aktivasi.contains(query);
+            }).toList();
     });
   }
-
+ 
   @override
   Widget build(BuildContext context) {
+    // ── GENERAL → centered lock banner ───────────────────────────────────────
+    if (_perm.isGeneral) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Header tetap ada tapi tanpa controls
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 48),
+            child: _buildHeaderLocked(),
+          ),
+          const SizedBox(height: 48),
+          // Banner center + constrained width
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: SectionLockBanner(
+                  sectionName: 'Trade Ideas',
+                  token: widget.token,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 48),
+        ],
+      );
+    }
+ 
+    // ── ADMIN / EXCLUSIVE → konten penuh ─────────────────────────────────────
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Header
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 48),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // Title dengan Icon
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          TradeIdeasColorStyle.greenNeon.withOpacity(0.2),
-                          TradeIdeasColorStyle.greenNeon.withOpacity(0.05),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: TradeIdeasColorStyle.greenNeon.withOpacity(0.3),
-                        width: 1.5,
-                      ),
-                    ),
-                    child: Icon(
-                      Icons.show_chart,
-                      color: TradeIdeasColorStyle.greenNeon,
-                      size: 28,
-                    ),
-                  ),
-                  
-                  const SizedBox(width: 16),
-                  
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Trade Ideas',
-                        style: TradeIdeasColorStyle.sectionTitleStyle,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Actionable setups & market execution plans',
-                        style: TextStyle(
-                          color: TradeIdeasColorStyle.searchPlaceholder.withOpacity(0.5),
-                          fontSize: 14,
-                          fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              Row(
-                children: [
-                  _buildSearchBar(),
-                  const SizedBox(width: 16),
-                  _buildAddButton(),
-                ],
-              ),
-            ],
-          ),
-        ),
-        
+        _buildHeader(showControls: true),
         const SizedBox(height: 32),
-        
-        // Trade Ideas Feed (Timeline Layout)
         if (isLoading)
           SizedBox(
             height: 400,
             child: Center(
               child: CircularProgressIndicator(
-                color: TradeIdeasColorStyle.greenNeon,
+                color:       TradeIdeasColorStyle.greenNeon,
                 strokeWidth: 3,
               ),
             ),
           )
         else if (filteredTradeIdeas.isEmpty)
-          SizedBox(
-            height: 400,
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.show_chart,
-                    size: 64,
-                    color: TradeIdeasColorStyle.subtitleText.withOpacity(0.5),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No trade ideas available',
-                    style: TextStyle(
-                      color: TradeIdeasColorStyle.subtitleText,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Click "Add Trade Idea" to publish your first setup',
-                    style: TextStyle(
-                      color: TradeIdeasColorStyle.sourceText,
-                      fontSize: 14,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          )
+          _buildEmptyState()
         else
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 48),
@@ -216,16 +141,13 @@ class _TradeIdeasSectionState extends State<TradeIdeasSection> {
               children: filteredTradeIdeas.map((trade) {
                 return _TradeIdeaCard(
                   tradeData: trade,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => PostinganTradeIdeasScreen(
-                          tradeIdeasData: trade,
-                        ),
-                      ),
-                    );
-                  },
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          PostinganTradeIdeasScreen(tradeIdeasData: trade),
+                    ),
+                  ),
                 );
               }).toList(),
             ),
@@ -233,104 +155,227 @@ class _TradeIdeasSectionState extends State<TradeIdeasSection> {
       ],
     );
   }
+ 
+  // ─── Header untuk general (locked) — simpler, no controls ─────────────────
+  Widget _buildHeaderLocked() {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                TradeIdeasColorStyle.greenNeon.withOpacity(0.2),
+                TradeIdeasColorStyle.greenNeon.withOpacity(0.05),
+              ],
+              begin: Alignment.topLeft,
+              end:   Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: TradeIdeasColorStyle.greenNeon.withOpacity(0.3),
+              width: 1.5,
+            ),
+          ),
+          child: Icon(Icons.show_chart,
+              color: TradeIdeasColorStyle.greenNeon, size: 28),
+        ),
+        const SizedBox(width: 16),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Trade Ideas',
+                style: TradeIdeasColorStyle.sectionTitleStyle),
+            const SizedBox(height: 4),
+            Text(
+              'Actionable setups & market execution plans',
+              style: TextStyle(
+                color:      TradeIdeasColorStyle.searchPlaceholder
+                    .withOpacity(0.5),
+                fontSize:   14,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
 
+  // ─── Header ───────────────────────────────────────────────────────────────
+  Widget _buildHeader({required bool showControls}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 48),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      TradeIdeasColorStyle.greenNeon.withOpacity(0.2),
+                      TradeIdeasColorStyle.greenNeon.withOpacity(0.05),
+                    ],
+                    begin: Alignment.topLeft,
+                    end:   Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: TradeIdeasColorStyle.greenNeon.withOpacity(0.3),
+                    width: 1.5,
+                  ),
+                ),
+                child: Icon(Icons.show_chart,
+                    color: TradeIdeasColorStyle.greenNeon, size: 28),
+              ),
+              const SizedBox(width: 16),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Trade Ideas',
+                      style: TradeIdeasColorStyle.sectionTitleStyle),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Actionable setups & market execution plans',
+                    style: TextStyle(
+                      color:      TradeIdeasColorStyle.searchPlaceholder
+                          .withOpacity(0.5),
+                      fontSize:   14,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+ 
+          if (showControls)
+            Row(
+              children: [
+                _buildSearchBar(),
+                const SizedBox(width: 16),
+                UploadGuard(
+                  token: widget.token,
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: ElevatedButton.icon(
+                      onPressed: () => Navigator.pushNamed(
+                        context,
+                        '/upload_trade_ideas',
+                        arguments: widget.token,
+                      ),
+                      icon:  const Icon(Icons.add, size: 18),
+                      label: const Text(
+                        'Add Trade Idea',
+                        style: TextStyle(
+                            fontSize:   14,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.3),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: TradeIdeasColorStyle.addButtonBackground,
+                        foregroundColor: TradeIdeasColorStyle.addButtonText,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 24, vertical: 14),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                        elevation: 0,
+                      ).copyWith(
+                        overlayColor: WidgetStateProperty.resolveWith<Color?>(
+                          (states) {
+                            if (states.contains(WidgetState.hovered)) {
+                              return Colors.black.withOpacity(0.1);
+                            }
+                            if (states.contains(WidgetState.pressed)) {
+                              return Colors.black.withOpacity(0.2);
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+ 
+  // ─── Empty state ──────────────────────────────────────────────────────────
+  Widget _buildEmptyState() {
+    return SizedBox(
+      height: 400,
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.show_chart,
+                size:  64,
+                color: TradeIdeasColorStyle.subtitleText.withOpacity(0.5)),
+            const SizedBox(height: 16),
+            Text(
+              'No trade ideas available',
+              style: TextStyle(
+                  color:      TradeIdeasColorStyle.subtitleText,
+                  fontSize:   16,
+                  fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _perm.isAdmin
+                  ? 'Click "Add Trade Idea" to publish your first setup'
+                  : 'Belum ada trade ideas tersedia, coba lagi nanti',
+              style: TextStyle(
+                  color:    TradeIdeasColorStyle.sourceText, fontSize: 14),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+ 
+  // ─── Search bar ───────────────────────────────────────────────────────────
   Widget _buildSearchBar() {
     return Container(
-      width: 280,
-      height: 44,
+      width: 280, height: 44,
       decoration: tradeIdeasCardTheme.searchBarDecoration(
-        isFocused: _searchController.text.isNotEmpty,
-      ),
+          isFocused: _searchController.text.isNotEmpty),
       child: TextField(
         controller: _searchController,
         style: const TextStyle(
-          color: TradeIdeasColorStyle.searchText,
-          fontSize: 14,
-        ),
+            color: TradeIdeasColorStyle.searchText, fontSize: 14),
         decoration: InputDecoration(
-          hintText: 'Search trade ideas...',
+          hintText:  'Search trade ideas...',
           hintStyle: const TextStyle(
-            color: TradeIdeasColorStyle.searchPlaceholder,
-            fontSize: 14,
-          ),
-          prefixIcon: const Icon(
-            Icons.search,
-            color: TradeIdeasColorStyle.searchPlaceholder,
-            size: 20,
-          ),
+              color: TradeIdeasColorStyle.searchPlaceholder, fontSize: 14),
+          prefixIcon: const Icon(Icons.search,
+              color: TradeIdeasColorStyle.searchPlaceholder, size: 20),
           suffixIcon: _searchController.text.isNotEmpty
               ? IconButton(
-                  icon: const Icon(
-                    Icons.clear,
-                    color: TradeIdeasColorStyle.searchPlaceholder,
-                    size: 18,
-                  ),
+                  icon: const Icon(Icons.clear,
+                      color: TradeIdeasColorStyle.searchPlaceholder, size: 18),
                   onPressed: () {
                     _searchController.clear();
                     setState(() {});
                   },
                 )
               : null,
-          border: InputBorder.none,
+          border:         InputBorder.none,
           contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 12,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAddButton() {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: ElevatedButton.icon(
-        onPressed: () {
-          Navigator.pushNamed(
-            context,
-            '/upload_trade_ideas',
-            arguments: widget.token,
-          );
-        },
-        icon: const Icon(Icons.add, size: 18),
-        label: const Text(
-          'Add Trade Idea',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.3,
-          ),
-        ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: TradeIdeasColorStyle.addButtonBackground,
-          foregroundColor: TradeIdeasColorStyle.addButtonText,
-          padding: const EdgeInsets.symmetric(
-            horizontal: 24,
-            vertical: 14,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          elevation: 0,
-        ).copyWith(
-          overlayColor: WidgetStateProperty.resolveWith<Color?>(
-            (Set<WidgetState> states) {
-              if (states.contains(WidgetState.hovered)) {
-                return Colors.black.withOpacity(0.1);
-              }
-              if (states.contains(WidgetState.pressed)) {
-                return Colors.black.withOpacity(0.2);
-              }
-              return null;
-            },
-          ),
+              horizontal: 16, vertical: 12),
         ),
       ),
     );
   }
 }
 
-/// ✅ CARD DESIGN - Timeline/Feed Layout (mirip Street View)
+
+/// ✅ CARD DESIGN - Timeline/Feed Layout
 class _TradeIdeaCard extends StatefulWidget {
   final Map<String, dynamic> tradeData;
   final VoidCallback onTap;
@@ -385,11 +430,9 @@ class _TradeIdeaCardState extends State<_TradeIdeaCard> {
                      widget.tradeData['Uploader']?.toString() ?? 
                      'Admin';
     
-    // Determine if it's BUY or SELL
     final isBuy = tipeTrade.toUpperCase().contains('BUY');
     final tradeColor = isBuy ? TradeIdeasColorStyle.greenNeon : Colors.redAccent;
     
-    // Calculate R:R Ratio
     final entryValue = double.tryParse(entry) ?? 0;
     final stoplossValue = double.tryParse(stoploss) ?? 0;
     final targetValue = double.tryParse(target) ?? 0;
@@ -438,7 +481,6 @@ class _TradeIdeaCardState extends State<_TradeIdeaCard> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Chart Section (Left Side - 35%)
                 Expanded(
                   flex: 35,
                   child: ClipRRect(
@@ -461,7 +503,6 @@ class _TradeIdeaCardState extends State<_TradeIdeaCard> {
                   ),
                 ),
                 
-                // Content Section (Right Side - 65%)
                 Expanded(
                   flex: 65,
                   child: Padding(
@@ -473,7 +514,6 @@ class _TradeIdeaCardState extends State<_TradeIdeaCard> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Badge & Status Row
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
@@ -488,8 +528,6 @@ class _TradeIdeaCardState extends State<_TradeIdeaCard> {
                                     style: TradeIdeasColorStyle.badgeTextStyle,
                                   ),
                                 ),
-                                
-                                // Status Badge
                                 Container(
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 12,
@@ -541,7 +579,6 @@ class _TradeIdeaCardState extends State<_TradeIdeaCard> {
                             
                             const SizedBox(height: 16),
                             
-                            // Trade Type Badge
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 16,
@@ -582,7 +619,6 @@ class _TradeIdeaCardState extends State<_TradeIdeaCard> {
                             
                             const SizedBox(height: 12),
                             
-                            // Trade Idea Title
                             Text(
                               tradeIdea,
                               style: const TextStyle(
@@ -598,7 +634,6 @@ class _TradeIdeaCardState extends State<_TradeIdeaCard> {
                             
                             const SizedBox(height: 12),
                             
-                            // Activation Info
                             if (aktivasi.isNotEmpty)
                               Container(
                                 padding: const EdgeInsets.symmetric(
@@ -636,7 +671,6 @@ class _TradeIdeaCardState extends State<_TradeIdeaCard> {
                             
                             const SizedBox(height: 20),
                             
-                            // Trade Parameters
                             Row(
                               children: [
                                 Expanded(
@@ -670,7 +704,6 @@ class _TradeIdeaCardState extends State<_TradeIdeaCard> {
                             
                             const SizedBox(height: 16),
                             
-                            // R:R Ratio Bar
                             Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
@@ -734,10 +767,8 @@ class _TradeIdeaCardState extends State<_TradeIdeaCard> {
                             
                             const SizedBox(height: 16),
                             
-                            // Metadata Row
                             Row(
                               children: [
-                                // Uploader
                                 Container(
                                   padding: const EdgeInsets.all(6),
                                   decoration: BoxDecoration(
@@ -762,7 +793,6 @@ class _TradeIdeaCardState extends State<_TradeIdeaCard> {
                                 
                                 const Spacer(),
                                 
-                                // Date
                                 if (date.isNotEmpty) ...[
                                   Icon(
                                     Icons.calendar_today_outlined,
@@ -784,7 +814,6 @@ class _TradeIdeaCardState extends State<_TradeIdeaCard> {
                           ],
                         ),
                         
-                        // View Details Button
                         const SizedBox(height: 20),
                         Row(
                           children: [
@@ -838,11 +867,7 @@ class _TradeIdeaCardState extends State<_TradeIdeaCard> {
         children: [
           Row(
             children: [
-              Icon(
-                icon,
-                size: 12,
-                color: color,
-              ),
+              Icon(icon, size: 12, color: color),
               const SizedBox(width: 4),
               Text(
                 label,
@@ -857,7 +882,7 @@ class _TradeIdeaCardState extends State<_TradeIdeaCard> {
           const SizedBox(height: 4),
           Text(
             value,
-            style: TextStyle(
+            style: const TextStyle(
               color: Colors.white,
               fontSize: 14,
               fontWeight: FontWeight.bold,
@@ -887,12 +912,10 @@ class _TradeIdeaCardState extends State<_TradeIdeaCard> {
 
   String _formatDate(String date) {
     if (date.isEmpty) return '';
-    
     try {
       final parsedDate = DateTime.parse(date);
       final now = DateTime.now();
       final difference = now.difference(parsedDate);
-
       if (difference.inDays == 0) {
         return 'Today';
       } else if (difference.inDays == 1) {
@@ -908,7 +931,7 @@ class _TradeIdeaCardState extends State<_TradeIdeaCard> {
   }
 }
 
-/// ✅ CHART PAINTER - Mini Trading Chart
+/// ✅ CHART PAINTER
 class _TradeChartPainter extends CustomPainter {
   final double entry;
   final double stoploss;
@@ -924,33 +947,20 @@ class _TradeChartPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Draw grid background
     final gridPaint = Paint()
       ..color = TradeIdeasColorStyle.searchBorder.withOpacity(0.3)
       ..strokeWidth = 0.5
       ..style = PaintingStyle.stroke;
 
-    // Vertical lines
     for (int i = 0; i <= 4; i++) {
       final x = (size.width / 4) * i;
-      canvas.drawLine(
-        Offset(x, 0),
-        Offset(x, size.height),
-        gridPaint,
-      );
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
     }
-
-    // Horizontal lines
     for (int i = 0; i <= 4; i++) {
       final y = (size.height / 4) * i;
-      canvas.drawLine(
-        Offset(0, y),
-        Offset(size.width, y),
-        gridPaint,
-      );
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
     }
 
-    // Calculate price positions
     final maxPrice = [entry, stoploss, target].reduce((a, b) => a > b ? a : b);
     final minPrice = [entry, stoploss, target].reduce((a, b) => a < b ? a : b);
     final priceRange = maxPrice - minPrice;
@@ -960,14 +970,12 @@ class _TradeChartPainter extends CustomPainter {
       return size.height - ((price - minPrice) / priceRange * size.height * 0.8) - size.height * 0.1;
     }
 
-    // Draw candlesticks simulation
     final candleWidth = size.width / 10;
     for (int i = 0; i < 9; i++) {
       final x = candleWidth * i + candleWidth / 2;
       final baseY = getY(entry);
       final variation = (i * 15 % 40 - 20).toDouble();
       
-      // Wick
       canvas.drawLine(
         Offset(x, baseY - 20 + variation),
         Offset(x, baseY + 20 + variation),
@@ -978,7 +986,6 @@ class _TradeChartPainter extends CustomPainter {
           ..strokeWidth = 1.5,
       );
       
-      // Body
       canvas.drawRect(
         Rect.fromCenter(
           center: Offset(x, baseY + variation),
@@ -993,89 +1000,53 @@ class _TradeChartPainter extends CustomPainter {
       );
     }
 
-    // Draw entry line
     final entryY = getY(entry);
-    _drawDashedLine(
-      canvas,
-      Offset(0, entryY),
-      Offset(size.width, entryY),
-      TradeIdeasColorStyle.greenPrimary,
-      2,
-    );
+    _drawDashedLine(canvas, Offset(0, entryY), Offset(size.width, entryY),
+        TradeIdeasColorStyle.greenPrimary, 2);
 
-    // Draw target line
     final targetY = getY(target);
-    _drawDashedLine(
-      canvas,
-      Offset(0, targetY),
-      Offset(size.width, targetY),
-      TradeIdeasColorStyle.greenLight,
-      1.5,
-    );
+    _drawDashedLine(canvas, Offset(0, targetY), Offset(size.width, targetY),
+        TradeIdeasColorStyle.greenLight, 1.5);
 
-    // Draw stoploss line
     final slY = getY(stoploss);
-    _drawDashedLine(
-      canvas,
-      Offset(0, slY),
-      Offset(size.width, slY),
-      Colors.redAccent,
-      1.5,
-    );
+    _drawDashedLine(canvas, Offset(0, slY), Offset(size.width, slY),
+        Colors.redAccent, 1.5);
 
-    // Draw profit zone
     final profitPath = Path()
       ..moveTo(0, entryY)
       ..lineTo(size.width, entryY)
       ..lineTo(size.width, targetY)
       ..lineTo(0, targetY)
       ..close();
+    canvas.drawPath(profitPath, Paint()
+      ..color = TradeIdeasColorStyle.greenPrimary.withOpacity(0.15)
+      ..style = PaintingStyle.fill);
 
-    canvas.drawPath(
-      profitPath,
-      Paint()
-        ..color = TradeIdeasColorStyle.greenPrimary.withOpacity(0.15)
-        ..style = PaintingStyle.fill,
-    );
-
-    // Draw risk zone
     final riskPath = Path()
       ..moveTo(0, entryY)
       ..lineTo(size.width, entryY)
       ..lineTo(size.width, slY)
       ..lineTo(0, slY)
       ..close();
-
-    canvas.drawPath(
-      riskPath,
-      Paint()
-        ..color = Colors.redAccent.withOpacity(0.1)
-        ..style = PaintingStyle.fill,
-    );
+    canvas.drawPath(riskPath, Paint()
+      ..color = Colors.redAccent.withOpacity(0.1)
+      ..style = PaintingStyle.fill);
   }
 
-  void _drawDashedLine(
-    Canvas canvas,
-    Offset start,
-    Offset end,
-    Color color,
-    double strokeWidth,
-  ) {
+  void _drawDashedLine(Canvas canvas, Offset start, Offset end,
+      Color color, double strokeWidth) {
     final paint = Paint()
       ..color = color
       ..strokeWidth = strokeWidth
       ..style = PaintingStyle.stroke;
-
     const dashWidth = 8.0;
     const dashSpace = 4.0;
     double distance = (end - start).distance;
-    
     for (double i = 0; i < distance; i += dashWidth + dashSpace) {
-      final x = start.dx + (end.dx - start.dx) * (i / distance);
-      final y = start.dy + (end.dy - start.dy) * (i / distance);
+      final x  = start.dx + (end.dx - start.dx) * (i / distance);
+      final y  = start.dy + (end.dy - start.dy) * (i / distance);
       final x2 = start.dx + (end.dx - start.dx) * ((i + dashWidth) / distance);
       final y2 = start.dy + (end.dy - start.dy) * ((i + dashWidth) / distance);
-      
       canvas.drawLine(Offset(x, y), Offset(x2, y2), paint);
     }
   }

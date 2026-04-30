@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../hooks/execute_hook.dart';
 
 /// Konstanta warna untuk tema dark futuristic
 class AppColors {
@@ -385,4 +386,17 @@ class ShadowHelper {
       ),
     ];
   }
+}
+
+/// Konstanta untuk API endpoints
+class ApiConstants {
+  ApiConstants._();
+
+  // Ganti dengan IP/domain backend lo
+  static const String baseUrl = 'http://10.0.2.2:8000'; // emulator Android
+  // static const String baseUrl = 'http://localhost:8000'; // web/desktop
+  // static const String baseUrl = 'https://api.exxelab.com'; // production
+
+  static const String execute = '$baseUrl/execute';
+  static const String health  = '$baseUrl/health';
 }

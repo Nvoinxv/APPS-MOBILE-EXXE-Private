@@ -11,12 +11,14 @@ from model.user_model import UserModel, UserRole, RegisterRequest, LoginRequest
 from database.postgres_sql import Postgres_SQL
 import bcrypt
 from fastapi import Request, HTTPException
+from fastapi import Depends
 from fastapi import APIRouter
 from datetime import datetime, timedelta
 import logging
 import re
+from dateutil.relativedelta import relativedelta
 import hashlib, random, string
-from middleware.jwt_dependency import get_current_user, create_access_token
+from middleware.jwt_dependency import get_current_user, create_access_token, require_admin
 
 router_autentikasi = APIRouter()
 
@@ -43,11 +45,6 @@ logging.basicConfig(
 )
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# ENDPOINT: POST /register
-# ══════════════════════════════════════════════════════════════════════════════
-# ✅ PERUBAHAN: Sekarang return access_token setelah register sukses.
-#
 # Kenapa return token di sini?
 # → Flutter register hook punya 3 step:
 #     1. POST /register           (wajib)
@@ -129,6 +126,99 @@ def register(user: RegisterRequest):
     finally:
         connection.close_connection()
 
+# ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: POST /grant-exclusive-access
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router_autentikasi.post("/grant-exclusive")
+def grant_exclusive_access(
+    email: str,
+    months: int,
+    reason: str = "crypto_class_purchase",  # audit trail
+    current_user: dict = Depends(require_admin)
+):
+    """
+    Admin grant akses EXCLUSIVE ke user — misal karena sudah beli kelas crypto.
+    Tidak perlu bayar lagi lewat Midtrans.
+    """
+    connection, cursor = get_db_connection()
+    try:
+        cursor.execute(
+            "SELECT id, role, exclusive_until FROM users WHERE email = %s",
+            (email,)
+        )
+        result = cursor.fetchone()
+
+        if not result:
+            raise HTTPException(status_code=404, detail="User tidak ditemukan")
+
+        if isinstance(result, dict):
+            user_id = result['id']
+            current_role = result['role']
+            current_until = result['exclusive_until']
+        else:
+            user_id, current_role, current_until = result
+
+        now = datetime.now()
+
+        # ✅ Kalau masih aktif exclusive, perpanjang dari tanggal expired
+        # Kalau sudah expired atau belum punya, mulai dari sekarang
+        if current_role == UserRole.EXCLUSIVE and current_until and current_until > now:
+            base_date = current_until  # perpanjang dari yang sudah ada
+        else:
+            base_date = now
+
+        # ✅ Pakai relativedelta biar akurat (1 bulan = 1 bulan, bukan 30 hari)
+        exclusive_until = base_date + relativedelta(months=months)
+
+        cursor.execute(
+            """
+            UPDATE users 
+            SET role = %s, exclusive_until = %s 
+            WHERE email = %s
+            """,
+            (UserRole.EXCLUSIVE, exclusive_until, email)
+        )
+
+        # ✅ Catat di tabel audit (buat tabel ini)
+        cursor.execute(
+            """
+            INSERT INTO access_grants 
+            (user_id, email, granted_by, months, reason, granted_at, expires_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                user_id,
+                email,
+                current_user['email'],
+                months,
+                reason,
+                now,
+                exclusive_until
+            )
+        )
+
+        connection.get_connection().commit()
+
+        return {
+            "status": "success",
+            "message": f"Akses EXCLUSIVE berhasil diberikan ke {email}",
+            "data": {
+                "email": email,
+                "granted_by": current_user['email'],
+                "reason": reason,
+                "exclusive_until": exclusive_until.strftime("%Y-%m-%d %H:%M:%S"),
+                "months_added": months,
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        connection.get_connection().rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        connection.close_connection()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINT: POST /upgrade-to-exclusive

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../chart/candle_info_panel.dart';
 import '../chart/price_header.dart';
@@ -10,24 +11,31 @@ import '../controller/chart_controls.dart';
 import '../controller/interval_selector.dart';
 import '../controller/risk_ratio_button.dart';
 import '../controller/ticker_selector.dart';
-import '../controller/strategy_button_2.dart';
 import '../controller/chart_viewport.dart';
+import '../controller/fibonacci_button.dart';
 
-import '../dialogs/style_settings.dart';  
-import '../dialogs/chart_style.dart';      
+import '../dialogs/style_settings.dart';
+import '../dialogs/chart_style.dart';
 
 import '../interactive/interactive_candlestick_chart.dart';
 import '../interactive/risk_ratio_interactive_2.dart';
 import '../interactive/volume_interactive.dart';
 import '../interactive/cross_interactive.dart';
 import '../interactive/grid_interactive.dart';
-import '../interactive/strategy_interactive_2.dart';
+import '../interactive/fibonacci_interactive.dart';
 
 import '../utils/constants.dart';
 import '../utils/helpers.dart';
+import '../utils/role_guard.dart';
+
 import '../candle/candle_normal.dart';
 
-import '../Strategy/Strategy_two_main.dart';
+import '../pages/tradingview_pages.dart';
+import '../style/apps_colors_tradingview.dart';
+import 'tradingviewcodeeditor_screen.dart';
+import 'tradingview/resizable_divider.dart';
+import '../models/script_file.dart';
+import '../models/script_folder.dart';
 
 class TradeViewScreen extends StatefulWidget {
   final String token;
@@ -39,10 +47,10 @@ class TradeViewScreen extends StatefulWidget {
 
 class _TradeViewScreenState extends State<TradeViewScreen> {
   late ChartController _controller;
-  final GlobalKey<RiskRatioInteractiveState> _riskRatioKey = GlobalKey();
-  final GlobalKey<MainStrategyState>         _strategyKey  = GlobalKey<MainStrategyState>();
+  late final IsolatedTradingViewHook _editorHook;
 
-  final _strategy2Controller = Strategy2Controller();
+  final GlobalKey<RiskRatioInteractiveState> _riskRatioKey = GlobalKey();
+  final GlobalKey<FibonacciInteractiveState> _fibonacciKey = GlobalKey();
 
   final ValueNotifier<Offset?> _crosshairNotifier = ValueNotifier(null);
 
@@ -50,13 +58,14 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
   final Map<int, Offset> _pendingDraw      = {};
   static const double    _drawThreshold    = 8.0;
 
-  final Set<int> _activePointers = {};
-  final FocusNode _chartFocus = FocusNode();
+  final Set<int>  _activePointers = {};
+  final FocusNode _chartFocus     = FocusNode();
 
-  // ── Style state ───────────────────────────────────────────────────────────
-  ChartStyleState _chartStyle = const ChartStyleState();  // ← tambah
+  bool _isFibonacciMode = false;
 
-  Size _lastChartSize = Size.zero;
+  ChartStyleState _chartStyle = const ChartStyleState();
+
+  Size           _lastChartSize = Size.zero;
   ChartViewport? _lastViewport;
 
   double _scaleBase  = 1.0;
@@ -69,6 +78,21 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
   double _lastOffsetX     = 0.0;
   double _lastOffsetY     = 0.0;
 
+  // ── Panel layout state ────────────────────────────────────────────────────
+  // _bottomHeight  : tinggi aktual panel editor saat ini
+  // _bottomExpanded: toggle collapse/expand (cukup hide panel, divider tetap ada)
+  // _minBottom     : tinggi minimum — cukup untuk toolbar editor keliatan
+  // maxBottom & halfBottom dihitung dinamis dari screen height di _buildChartArea
+
+  double _bottomHeight   = 220.0;
+  bool   _bottomExpanded = true;
+
+  static const double _minBottom = 48.0;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Lifecycle
+  // ═══════════════════════════════════════════════════════════════════════════
+
   @override
   void initState() {
     super.initState();
@@ -77,15 +101,22 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
       availableIntervals: TimeframeConstants.common,
     );
     _controller.addListener(_onControllerUpdate);
+
+    _editorHook = IsolatedTradingViewHook(
+      permission: EditorPermission(
+        userId: widget.token,
+        role:   UserRole.exclusive,
+      ),
+    );
   }
 
   @override
   void dispose() {
     _controller.removeListener(_onControllerUpdate);
     _controller.dispose();
-    _strategy2Controller.dispose();
     _crosshairNotifier.dispose();
     _chartFocus.dispose();
+    _editorHook.dispose();
     super.dispose();
   }
 
@@ -110,11 +141,6 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
       _lastCandleCount = state.candles.length;
       _lastScale       = state.scale;
       setState(() {});
-      if (DataValidator.isCandlesValid(state.candles)) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _strategyKey.currentState?.runHistorical();
-        });
-      }
       return;
     }
 
@@ -127,6 +153,10 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
 
     if (state.selectedCandle != null) setState(() {});
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Risk Ratio helpers
+  // ═══════════════════════════════════════════════════════════════════════════
 
   RiskRatioInteractiveState? get _rrState => _riskRatioKey.currentState;
 
@@ -143,6 +173,9 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
   }
 
   void _toggleRiskRatioMode() {
+    if (!_controller.state.isRiskRatioMode && _isFibonacciMode) {
+      _toggleFibonacciMode();
+    }
     final wasActive = _controller.state.isRiskRatioMode;
     _controller.toggleRiskRatioMode();
     if (!wasActive) {
@@ -154,7 +187,56 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
     }
   }
 
-  // ← isi sekarang, sebelumnya kosong
+  void _onRiskRatioModeChanged(RiskRatioMode newMode) {
+    if (_controller.state.riskRatioMode != newMode) {
+      _controller.switchRiskRatioMode();
+    }
+    if (!_controller.state.isRiskRatioMode) {
+      _toggleRiskRatioMode();
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _riskRatioKey.currentState?.setMode(newMode);
+      });
+      setState(() {});
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Fibonacci helpers
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  FibonacciInteractiveState? get _fibState => _fibonacciKey.currentState;
+
+  bool get _fibVisible {
+    if (_isFibonacciMode) return true;
+    final fib = _fibState;
+    return fib != null && fib.overlays.isNotEmpty;
+  }
+
+  bool _fibOwnsImmediately(Offset pos) {
+    final fib = _fibState;
+    if (fib == null || fib.overlays.isEmpty) return false;
+    return fib.isInsideInteractiveArea(pos);
+  }
+
+  void _toggleFibonacciMode() {
+    if (!_isFibonacciMode && _controller.state.isRiskRatioMode) {
+      _controller.toggleRiskRatioMode();
+    }
+    setState(() => _isFibonacciMode = !_isFibonacciMode);
+    if (_isFibonacciMode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_lastChartSize != Size.zero) {
+          _fibonacciKey.currentState?.initializeDefault();
+        }
+      });
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Style settings
+  // ═══════════════════════════════════════════════════════════════════════════
+
   void _showStyleSettings() {
     StyleSettingsPanel.show(
       context,
@@ -163,18 +245,44 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
     );
   }
 
-  // ── Pointer handling ──────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Back navigation
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  void _handleBack() {
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+    } else {
+      Navigator.pushReplacementNamed(context, '/home', arguments: widget.token);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Pointer handling
+  // ═══════════════════════════════════════════════════════════════════════════
 
   void _onPointerDown(PointerDownEvent e) {
     if (e.buttons == kSecondaryMouseButton) {
-      _rrState?.handleRightClick(context, e.localPosition);
+      if (_rrVisible)  _rrState?.handleRightClick(context, e.localPosition);
+      if (_fibVisible) _fibState?.handleRightClick(context, e.localPosition);
       return;
     }
 
     _activePointers.add(e.pointer);
-
     final pos   = e.localPosition;
     final state = _controller.state;
+
+    if (_fibVisible && _fibOwnsImmediately(pos)) {
+      final claimed = _fibState?.handlePointerDown(pos) ?? false;
+      _pointerOwnership[e.pointer] = claimed;
+      return;
+    }
+
+    if (_fibVisible && _isFibonacciMode && _fibState != null && !(_fibState!.isDrawing)) {
+      _pendingDraw[e.pointer]      = pos;
+      _pointerOwnership[e.pointer] = false;
+      return;
+    }
 
     if (_rrVisible && _rrOwnsImmediately(pos)) {
       final claimed = _rrState?.handlePointerDown(pos) ?? false;
@@ -182,10 +290,7 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
       return;
     }
 
-    if (_rrVisible &&
-        state.isRiskRatioMode &&
-        _rrState != null &&
-        !(_rrState!.isDrawing)) {
+    if (_rrVisible && state.isRiskRatioMode && _rrState != null && !(_rrState!.isDrawing)) {
       _pendingDraw[e.pointer]      = pos;
       _pointerOwnership[e.pointer] = false;
       return;
@@ -199,7 +304,11 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
     final owned = _pointerOwnership[e.pointer];
 
     if (owned == true) {
-      _rrState?.handlePointerMove(pos);
+      if (_fibState?.isDrawing == true || _fibOwnsImmediately(pos)) {
+        _fibState?.handlePointerMove(pos);
+      } else {
+        _rrState?.handlePointerMove(pos);
+      }
       return;
     }
 
@@ -208,19 +317,29 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
       if ((pos - drawStart).distance >= _drawThreshold) {
         _pendingDraw.remove(e.pointer);
         _pointerOwnership[e.pointer] = true;
-        _rrState?.startDrawing(drawStart);
-        _rrState?.handlePointerMove(pos);
+        if (_isFibonacciMode) {
+          _fibState?.startDrawing(drawStart);
+          _fibState?.handlePointerMove(pos);
+        } else {
+          _rrState?.startDrawing(drawStart);
+          _rrState?.handlePointerMove(pos);
+        }
       }
       return;
     }
 
     final state = _controller.state;
-
-    if (!state.isRiskRatioMode && _activePointers.length == 1) {
+    if (!state.isRiskRatioMode && !_isFibonacciMode && _activePointers.length == 1) {
       _controller.applyPanDelta(e.delta.dx, 0);
     }
 
-    if (state.showCrosshair && !state.isRiskRatioMode) {
+    if ((state.isRiskRatioMode || _isFibonacciMode) && _activePointers.length == 1) {
+      final rrHit  = _rrVisible  && _rrOwnsImmediately(pos);
+      final fibHit = _fibVisible && _fibOwnsImmediately(pos);
+      if (!rrHit && !fibHit) _controller.applyPanDelta(e.delta.dx, 0);
+    }
+
+    if (state.showCrosshair && !state.isRiskRatioMode && !_isFibonacciMode) {
       _crosshairNotifier.value = pos;
     }
   }
@@ -231,7 +350,12 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
 
     final owned = _pointerOwnership.remove(e.pointer);
     if (owned == true) {
-      _rrState?.handlePointerUp(e.localPosition);
+      if (_fibState?.isDrawing == true) {
+        _fibState?.handlePointerUp(e.localPosition);
+      } else {
+        _rrState?.handlePointerUp(e.localPosition);
+        _fibState?.handlePointerUp(e.localPosition);
+      }
     } else {
       _crosshairNotifier.value = null;
     }
@@ -244,6 +368,7 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
     final owned = _pointerOwnership.remove(e.pointer);
     if (owned == true) {
       _rrState?.handlePointerCancel();
+      _fibState?.handlePointerCancel();
     } else {
       _crosshairNotifier.value = null;
     }
@@ -266,8 +391,10 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
     }
   }
 
-  // ── Build ─────────────────────────────────────────────────────────────────
-  // ── Di dalam _TradeViewScreenState, tambah method ini ──────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Style helpers
+  // ═══════════════════════════════════════════════════════════════════════════
+
   CandlestickStyle _toCandlestickStyle(ChartStyleState s) {
     return CandlestickStyle(
       bullishColor:    s.bullishColor,
@@ -276,11 +403,14 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
       gridColor:       s.gridColor.withOpacity(s.gridOpacity),
       textColor:       s.textColor,
       crosshairColor:  s.crosshairColor,
-      bullishStyle:    s.bodyStyle,   // CandleBodyStyle sudah sama enum-nya
+      bullishStyle:    s.bodyStyle,
       bearishStyle:    s.bodyStyle,
     );
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Build
+  // ═══════════════════════════════════════════════════════════════════════════
 
   @override
   Widget build(BuildContext context) {
@@ -304,6 +434,8 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
                 ),
               ),
 
+            // Expanded wraps _buildChartArea sehingga CandleInfoPanel
+            // dan ChartControls tidak pernah overflow ke bawah
             Expanded(child: _buildChartArea(style)),
 
             if (state.selectedCandle != null)
@@ -319,16 +451,40 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
     );
   }
 
+  // ─── Top Controls ──────────────────────────────────────────────────────────
+
   Widget _buildTopControls(CandlestickStyle style) {
     final state = _controller.state;
     return Container(
-      padding: const EdgeInsets.all(AppSizes.paddingLarge),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSizes.paddingLarge,
+        vertical:   AppSizes.paddingLarge,
+      ),
       decoration: BoxDecoration(
         color:  style.backgroundColor,
         border: Border(bottom: BorderSide(color: style.gridColor)),
       ),
       child: Row(
         children: [
+          GestureDetector(
+            onTap: _handleBack,
+            child: Container(
+              width:  36,
+              height: 36,
+              decoration: BoxDecoration(
+                color:        style.gridColor.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(8),
+                border:       Border.all(color: style.gridColor),
+              ),
+              child: Icon(
+                Icons.arrow_back_ios_new_rounded,
+                color: style.textColor,
+                size:  16,
+              ),
+            ),
+          ),
+          const SizedBox(width: AppSizes.paddingLarge),
+
           TickerSelector(
             selectedTicker:   state.selectedTicker,
             availableTickers: _controller.availableTickers,
@@ -336,6 +492,7 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
             onTickerChanged:  _controller.changeTicker,
           ),
           const SizedBox(width: AppSizes.paddingLarge),
+
           Expanded(
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -351,16 +508,35 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
             ),
           ),
           const SizedBox(width: AppSizes.paddingLarge),
-          RiskRatioButton(
-            isActive: state.isRiskRatioMode,
-            mode:     state.riskRatioMode,
+
+          FibonacciButton(
+            isActive: _isFibonacciMode,
             style:    style,
-            onTap:    _toggleRiskRatioMode,
+            onTap:    _toggleFibonacciMode,
+          ),
+          const SizedBox(width: AppSizes.paddingLarge),
+
+          RiskRatioButton(
+            isActive:      state.isRiskRatioMode,
+            mode:          state.riskRatioMode,
+            style:         style,
+            onTap:         _toggleRiskRatioMode,
+            onModeChanged: _onRiskRatioModeChanged,
           ),
         ],
       ),
     );
   }
+
+  // ─── Chart Area ────────────────────────────────────────────────────────────
+  //
+  // FIX UTAMA ADA DI SINI:
+  //   1. LayoutBuilder di level paling luar → dapat totalH yang akurat
+  //   2. maxBottom  = 80% totalH  (bisa full-screen editor)
+  //   3. halfBottom = 40% totalH  (snap point tengah)
+  //   4. Double-tap divider → cycling snap: half ↔ full, atau collapsed → half
+  //   5. AnimatedContainer di bottom panel → transisi smooth
+  //   6. Clamp guard pakai addPostFrameCallback agar tidak rebuild mid-frame
 
   Widget _buildChartArea(CandlestickStyle style) {
     final state = _controller.state;
@@ -385,151 +561,232 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
       );
     }
 
+    // ── Snap + clamp logic (semua dihitung dari tinggi aktual layar) ─────────
     return LayoutBuilder(
-      builder: (context, constraints) {
-        final newSize = Size(constraints.maxWidth, constraints.maxHeight);
-        if (newSize != _lastChartSize) _lastChartSize = newSize;
+      builder: (context, outerConstraints) {
+        final totalH     = outerConstraints.maxHeight;
+        final maxBottom  = totalH * 0.80;   // 80% → editor hampir full screen
+        final halfBottom = totalH * 0.40;   // 40% → half split
 
-        final vp = _controller.buildViewport(_lastChartSize);
-        _lastViewport = vp;
+        // Clamp guard: kalau state masih nyimpen nilai lama yang melebihi batas
+        // baru (mis. setelah rotate), koreksi di frame berikutnya
+        if (_bottomHeight > maxBottom) {
+          SchedulerBinding.instance.addPostFrameCallback((_) {
+            if (mounted) setState(() => _bottomHeight = maxBottom);
+          });
+        }
 
-        final minPrice       = vp.minPrice;
-        final maxPrice       = vp.maxPrice;
-        final offsetAsOffset = Offset(state.offsetX, state.offsetY);
+        return Column(
+          children: [
 
-        return KeyboardListener(
-          focusNode: _chartFocus,
-          autofocus: true,
-          onKeyEvent: (event) {
-            _rrState?.handleKeyEvent(event);
-          },
-          child: Listener(
-            behavior:        HitTestBehavior.translucent,
-            onPointerDown:   _onPointerDown,
-            onPointerMove:   _onPointerMove,
-            onPointerUp:     _onPointerUp,
-            onPointerCancel: _onPointerCancel,
-            child: GestureDetector(
-              onScaleStart:  _onScaleStart,
-              onScaleUpdate: _onScaleUpdate,
-              child: Stack(
-                children: [
+            // ── Chart canvas (Expanded → otomatis menyusut saat editor diperbesar)
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final newSize = Size(constraints.maxWidth, constraints.maxHeight);
+                  if (newSize != _lastChartSize) _lastChartSize = newSize;
 
-                  RepaintBoundary(
-                    child: Column(
-                      children: [
-                        Expanded(
-                          flex: 4,
-                          child: Stack(
-                            children: [
-                              if (state.showGrid)
-                                Positioned.fill(
-                                  child: CustomPaint(
-                                    painter: GridInteractive(
-                                      candles:          state.candles,
-                                      style:            style,
-                                      scale:            state.scale,
-                                      offsetY:          state.offsetY,
-                                      offset:           offsetAsOffset,
-                                      showVolume:       state.showVolume,
-                                      selectedInterval: state.selectedInterval,
+                  final vp             = _controller.buildViewport(_lastChartSize);
+                  _lastViewport        = vp;
+                  final offsetAsOffset = Offset(state.offsetX, state.offsetY);
+
+                  return KeyboardListener(
+                    focusNode: _chartFocus,
+                    autofocus: true,
+                    onKeyEvent: (event) {
+                      _rrState?.handleKeyEvent(event);
+                      _fibState?.handleKeyEvent(event);
+                    },
+                    child: Listener(
+                      behavior:        HitTestBehavior.translucent,
+                      onPointerDown:   _onPointerDown,
+                      onPointerMove:   _onPointerMove,
+                      onPointerUp:     _onPointerUp,
+                      onPointerCancel: _onPointerCancel,
+                      child: GestureDetector(
+                        onScaleStart:  _onScaleStart,
+                        onScaleUpdate: _onScaleUpdate,
+                        child: Stack(
+                          children: [
+
+                            RepaintBoundary(
+                              child: Column(
+                                children: [
+                                  Expanded(
+                                    flex: 4,
+                                    child: Stack(
+                                      children: [
+                                        if (state.showGrid)
+                                          Positioned.fill(
+                                            child: CustomPaint(
+                                              painter: GridInteractive(
+                                                candles:          state.candles,
+                                                style:            style,
+                                                scale:            state.scale,
+                                                offsetY:          state.offsetY,
+                                                offset:           offsetAsOffset,
+                                                showVolume:       state.showVolume,
+                                                selectedInterval: state.selectedInterval,
+                                              ),
+                                            ),
+                                          ),
+                                        InteractiveCandlestickChart(
+                                          candles:          state.candles,
+                                          style:            style,
+                                          showVolume:       state.showVolume,
+                                          scale:            state.scale,
+                                          offset:           offsetAsOffset,
+                                          onScaleUpdate:    null,
+                                          onOffsetUpdate:   null,
+                                          onCandleSelected: _controller.selectCandle,
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                ),
-                              InteractiveCandlestickChart(
-                                candles:          state.candles,
-                                style:            style,
-                                showVolume:       state.showVolume,
-                                scale:            state.scale,
-                                offset:           offsetAsOffset,
-                                onScaleUpdate:    null,
-                                onOffsetUpdate:   null,
-                                onCandleSelected: _controller.selectCandle,
+                                  if (state.showVolume)
+                                    FuturisticVolumeBar(
+                                      candles:         state.candles,
+                                      bullishColor:    style.bullishColor,
+                                      bearishColor:    style.bearishColor,
+                                      backgroundColor: style.backgroundColor,
+                                      scale:           state.scale,
+                                      offset:          offsetAsOffset,
+                                      selectedIndex:   state.candles.indexOf(
+                                        state.selectedCandle ?? state.candles.last,
+                                      ),
+                                      height: AppSizes.volumeBarHeight,
+                                    ),
+                                ],
                               ),
-                            ],
-                          ),
-                        ),
-                        if (state.showVolume)
-                          FuturisticVolumeBar(
-                            candles:         state.candles,
-                            bullishColor:    style.bullishColor,
-                            bearishColor:    style.bearishColor,
-                            backgroundColor: style.backgroundColor,
-                            scale:           state.scale,
-                            offset:          offsetAsOffset,
-                            selectedIndex:   state.candles.indexOf(
-                              state.selectedCandle ?? state.candles.last,
                             ),
-                            height: AppSizes.volumeBarHeight,
-                          ),
-                      ],
-                    ),
-                  ),
 
-                  Positioned.fill(
-                    child: Strategy2Gate(
-                      controller: _strategy2Controller,
-                      builder: (isSignalEnabled) => MainStrategy(
-                        key:             _strategyKey,
-                        chartSize:       _lastChartSize,
-                        totalCandles:    state.candles.length,
-                        scale:           state.scale,
-                        scrollOffset:    state.offsetX,
-                        minPrice:        minPrice,
-                        maxPrice:        maxPrice,
-                        candles:         state.candles,
-                        isSignalEnabled: isSignalEnabled,
-                      ),
-                    ),
-                  ),
-
-                  if (state.showCrosshair && !state.isRiskRatioMode)
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: ValueListenableBuilder<Offset?>(
-                          valueListenable: _crosshairNotifier,
-                          builder: (_, pos, __) {
-                            if (pos == null) return const SizedBox.shrink();
-                            final currentVp = _lastViewport;
-                            if (currentVp == null) return const SizedBox.shrink();
-                            return CustomPaint(
-                              painter: CrosshairPainter(
-                                position:             pos,
-                                color:                style.bullishColor,
-                                strokeWidth:          1.0,
-                                showLabels:           true,
-                                priceLabel:           currentVp.yToPrice(pos.dy).toStringAsFixed(2),
-                                timeLabel:            _timeLabel(pos.dx, state.candles, currentVp),
-                                labelBackgroundColor: style.backgroundColor,
-                                labelTextColor:       style.textColor,
+                            if (state.showCrosshair && !state.isRiskRatioMode && !_isFibonacciMode)
+                              Positioned.fill(
+                                child: IgnorePointer(
+                                  child: ValueListenableBuilder<Offset?>(
+                                    valueListenable: _crosshairNotifier,
+                                    builder: (_, pos, __) {
+                                      if (pos == null) return const SizedBox.shrink();
+                                      final currentVp = _lastViewport;
+                                      if (currentVp == null) return const SizedBox.shrink();
+                                      return CustomPaint(
+                                        painter: CrosshairPainter(
+                                          position:             pos,
+                                          color:                style.bullishColor,
+                                          strokeWidth:          1.0,
+                                          showLabels:           true,
+                                          priceLabel:           currentVp.yToPrice(pos.dy).toStringAsFixed(2),
+                                          timeLabel:            _timeLabel(pos.dx, state.candles, currentVp),
+                                          labelBackgroundColor: style.backgroundColor,
+                                          labelTextColor:       style.textColor,
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
                               ),
-                            );
-                          },
+
+                            if (_fibVisible)
+                              Positioned.fill(
+                                child: FibonacciInteractive(
+                                  key:             _fibonacciKey,
+                                  viewport:        vp,
+                                  accentColor:     FibonacciButton.fibColor,
+                                  backgroundColor: style.backgroundColor,
+                                  textColor:       style.textColor,
+                                  chartStyle:      _chartStyle,
+                                ),
+                              ),
+
+                            if (_rrVisible)
+                              Positioned.fill(
+                                child: RiskRatioInteractive(
+                                  key:             _riskRatioKey,
+                                  viewport:        vp,
+                                  accentColor:     state.riskRatioMode == RiskRatioMode.buy
+                                      ? style.bullishColor
+                                      : style.bearishColor,
+                                  backgroundColor: style.backgroundColor,
+                                  textColor:       style.textColor,
+                                  initialMode:     state.riskRatioMode,
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                     ),
-
-                  if (_rrVisible)
-                    Positioned.fill(
-                      child: RiskRatioInteractive(
-                        key:             _riskRatioKey,
-                        viewport:        vp,
-                        accentColor:     state.riskRatioMode == RiskRatioMode.buy
-                            ? style.bullishColor
-                            : style.bearishColor,
-                        backgroundColor: style.backgroundColor,
-                        textColor:       style.textColor,
-                        initialMode:     state.riskRatioMode,
-                      ),
-                    ),
-                ],
+                  );
+                },
               ),
             ),
-          ),
+
+            // ── Resizable Divider ─────────────────────────────────────────────
+            // Double-tap → cycling snap:
+            //   collapsed (<30% halfBottom) → half
+            //   half (<85% maxBottom)       → full (maxBottom)
+            //   full                        → half
+            GestureDetector(
+              onDoubleTap: () {
+                setState(() {
+                  if (!_bottomExpanded) {
+                    // Kalau sedang collapsed, expand ke half dulu
+                    _bottomExpanded = true;
+                    _bottomHeight   = halfBottom;
+                  } else if (_bottomHeight < halfBottom * 0.6) {
+                    _bottomHeight = halfBottom;
+                  } else if (_bottomHeight < maxBottom * 0.85) {
+                    _bottomHeight = maxBottom;
+                  } else {
+                    _bottomHeight = halfBottom;
+                  }
+                });
+              },
+              child: ResizableDivider(
+                axis:    Axis.horizontal,
+                onDrag:  (delta) => setState(() {
+                  final next = _bottomHeight - delta;
+                  if (next < _minBottom * 0.5) {
+                    // Kalau di-drag terlalu ke bawah → collapse
+                    _bottomExpanded = false;
+                    _bottomHeight   = _minBottom;
+                  } else {
+                    _bottomExpanded = true;
+                    _bottomHeight   = next.clamp(_minBottom, maxBottom);
+                  }
+                }),
+                minSize: _minBottom,
+                maxSize: maxBottom,
+                current: _bottomExpanded ? _bottomHeight : _minBottom,
+              ),
+            ),
+
+            // ── Bottom Panel (editor) ─────────────────────────────────────────
+            // AnimatedContainer: transisi tinggi smooth saat snap / drag
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              curve:    Curves.easeOut,
+              height:   _bottomExpanded ? _bottomHeight : 0.0,
+              // ClipRect penting — cegah konten editor meluap saat animasi
+              child: ClipRect(
+                child: _buildBottomPanel(style),
+              ),
+            ),
+          ],
         );
       },
     );
   }
+
+  // ─── Bottom Panel ──────────────────────────────────────────────────────────
+
+  Widget _buildBottomPanel(CandlestickStyle style) {
+    return IsolatedHookProvider(
+      hook:  _editorHook,
+      child: const TradingViewCodeEditorScreen(),
+    );
+  }
+
+  // ─── Bottom Controls ───────────────────────────────────────────────────────
 
   Widget _buildBottomControls(CandlestickStyle style) {
     final state = _controller.state;
@@ -538,13 +795,13 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
       showVolume:        state.showVolume,
       showGrid:          state.showGrid,
       showCrosshair:     state.showCrosshair,
-      isFibonacciMode:   false,
+      isFibonacciMode:   _isFibonacciMode,
       isRiskRatioMode:   state.isRiskRatioMode,
       riskRatioMode:     state.riskRatioMode,
       onToggleVolume:    _controller.toggleVolume,
       onToggleGrid:      _controller.toggleGrid,
       onToggleCrosshair: _controller.toggleCrosshair,
-      onToggleFibonacci: () {},
+      onToggleFibonacci: _toggleFibonacciMode,
       onToggleRiskRatio: _toggleRiskRatioMode,
       onSwitchRiskRatioMode: () {
         _controller.switchRiskRatioMode();
@@ -554,20 +811,19 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
       onReset: () {
         _controller.resetViewport();
         _riskRatioKey.currentState?.clearRiskRatio();
+        _fibonacciKey.currentState?.clearAll();
         _crosshairNotifier.value = null;
         setState(() {
+          _isFibonacciMode = false;
           _pointerOwnership.clear();
           _pendingDraw.clear();
           _activePointers.clear();
         });
       },
-      strategy2Button: Strategy2Button(
-        isActive: _strategy2Controller.isActive,
-        onTap:    _strategy2Controller.toggle,
-        style:    style,
-      ),
     );
   }
+
+  // ─── Helpers ───────────────────────────────────────────────────────────────
 
   String _timeLabel(double x, List<dynamic> candles, ChartViewport vp) {
     if (candles.isEmpty) return '';

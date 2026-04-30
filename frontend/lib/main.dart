@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../utils/role_guard.dart'; // ← TAMBAH INI
+import '../utils/auth_storage.dart';
 
 // Bagian Autentikasi Import //
 import 'screen/register_screen.dart';
@@ -28,6 +30,9 @@ import 'postingan/postingan_quant_investing.dart';
 // Bagian Home Pages Import //
 import 'pages/home_pages.dart';
 
+// Bagian payment pages //
+import 'pages/payment_pages.dart';
+
 void main() {
   runApp(const MyApp());
 }
@@ -43,200 +48,246 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFBEFF00)),
         useMaterial3: true,
-        fontFamily: 'Inter', 
+        fontFamily: 'Inter',
       ),
-      home: const LoginScreen(),
-      
-      // ROUTE TANPA ARGUMENT
+      home: const SplashScreen(),
+
       initialRoute: '/',
       routes: {
-        '/login': (context) => const LoginScreen(),
-        '/register': (context) => const RegisterScreen(),
-        '/otp': (context) => const OtpScreen(),
+        '/login':          (context) => const LoginScreen(),
+        '/register':       (context) => const RegisterScreen(),
+        '/otp':            (context) => const OtpScreen(),
         '/reset-password': (context) => const ResetPasswordScreen(),
       },
-      
-      // ROUTE DENGAN ARGUMENT
+
       onGenerateRoute: (settings) {
-        // Home Screen - Combined Daily Research + News
+
+        // ── Home ─────────────────────────────────────────────────────────────
         if (settings.name == '/home') {
           final token = settings.arguments;
           if (token == null || token is! String) {
-            return MaterialPageRoute(
-              builder: (_) => const LoginScreen(),
-            );
+            return MaterialPageRoute(builder: (_) => const LoginScreen());
+          }
+          return MaterialPageRoute(builder: (_) => HomeScreen(token: token));
+        }
+
+        // ── Trade View (chart) ────────────────────────────────────────────────
+        // ⚠️  PROTECTED — hanya ADMIN & EXCLUSIVE
+        // Navigate ke sini pakai:
+        //   Navigator.pushNamed(context, '/trade-view', arguments: token);
+        if (settings.name == '/trade-view') {
+          final token = settings.arguments;
+          if (token == null || token is! String) {
+            return MaterialPageRoute(builder: (_) => const LoginScreen());
           }
           return MaterialPageRoute(
-            builder: (_) => HomeScreen(token: token),
+            builder: (_) => RoleGuard(
+              token: token,
+              child: TradeViewScreen(token: token),
+            ),
           );
         }
-        
-        // Upload Daily Research
+
+        // Bagian Payment Pages ───────────────────────────────────────────────────────
+        if (settings.name == '/payment') {
+          final token = settings.arguments;
+          if (token == null || token is! String) {
+            return MaterialPageRoute(builder: (_) => const LoginScreen());
+          }
+          return MaterialPageRoute(
+            builder: (_) => PaymentPage(token: token),
+          );
+        }
+
+        // ── Upload Daily Research ─────────────────────────────────────────────
         if (settings.name == '/upload_daily_research') {
           final token = settings.arguments;
           if (token == null || token is! String) {
-            return MaterialPageRoute(
-              builder: (_) => const LoginScreen(),
-            );
+            return MaterialPageRoute(builder: (_) => const LoginScreen());
           }
           return MaterialPageRoute(
             builder: (_) => UploadDailyResearch(token: token),
           );
         }
-        
-        // Upload News //
+
+        // ── Upload News ───────────────────────────────────────────────────────
         if (settings.name == '/upload_news') {
           final token = settings.arguments;
           if (token == null || token is! String) {
-            return MaterialPageRoute(
-              builder: (_) => const LoginScreen(),
-            );
+            return MaterialPageRoute(builder: (_) => const LoginScreen());
           }
           return MaterialPageRoute(
             builder: (_) => UploadNewsScreen(token: token),
           );
-        } 
-        
-        // Quant Investing //
+        }
+
+        // ── Quant Investing ───────────────────────────────────────────────────
         if (settings.name == '/quant_investing') {
           final token = settings.arguments;
           if (token == null || token is! String) {
-            return MaterialPageRoute(
-              builder: (_) => const LoginScreen(),
-            );
+            return MaterialPageRoute(builder: (_) => const LoginScreen());
           }
-
           return MaterialPageRoute(
             builder: (_) => QuantInvestingScreen(token: token),
           );
         }
 
-        // ✅ ROUTE DETAIL QUANT INVESTING (POSTINGAN)
+        // ── Quant Detail (postingan) ───────────────────────────────────────────
         if (settings.name == '/quant_detail') {
           final args = settings.arguments as Map<String, dynamic>?;
-          
           if (args == null) {
-            return MaterialPageRoute(
-              builder: (_) => const LoginScreen(),
-            );
+            return MaterialPageRoute(builder: (_) => const LoginScreen());
           }
-
           return MaterialPageRoute(
-            builder: (_) => PostinganQuantInvestingScreen(
-              quantData: args,
-            ),
+            builder: (_) => PostinganQuantInvestingScreen(quantData: args),
           );
         }
 
-        // Upload Quant //
-        if (settings.name == "/upload_quant") {
+        // ── Upload Quant ──────────────────────────────────────────────────────
+        if (settings.name == '/upload_quant') {
           final token = settings.arguments;
           if (token == null || token is! String) {
-            return MaterialPageRoute(
-              builder: (_) => const LoginScreen(),
-            );
+            return MaterialPageRoute(builder: (_) => const LoginScreen());
           }
-
           return MaterialPageRoute(
             builder: (_) => UploadQuantScreen(token: token),
           );
         }
 
-        // Trade Ideas Screen //
-        if (settings.name == "/trade-ideas") {
-          final token = settings.arguments as String;
+        // ── Trade Ideas ───────────────────────────────────────────────────────
+        if (settings.name == '/trade-ideas') {
+          final token = settings.arguments;
           if (token == null || token is! String) {
-            return MaterialPageRoute (
-              builder: (_) => const LoginScreen(),
-            );
+            return MaterialPageRoute(builder: (_) => const LoginScreen());
           }
-
           return MaterialPageRoute(
-            builder: (_) => TradeIdeasScreen(token:token),
+            builder: (_) => TradeIdeasScreen(token: token),
           );
         }
 
-        // Upload Trade Ideas //
-        if (settings.name == "/upload_trade_ideas") {
+        // ── Upload Trade Ideas ────────────────────────────────────────────────
+        if (settings.name == '/upload_trade_ideas') {
           final token = settings.arguments;
           if (token == null || token is! String) {
-              return MaterialPageRoute(builder: (_) => const LoginScreen());
-            }
-
+            return MaterialPageRoute(builder: (_) => const LoginScreen());
+          }
           return MaterialPageRoute(
             builder: (_) => Upload_trade_ideas(token: token),
           );
         }
 
-        // market outlook screen //
-        if (settings.name == "/market-outlook") {
-          final token = settings.arguments as String;
+        // ── Market Outlook ────────────────────────────────────────────────────
+        if (settings.name == '/market-outlook') {
+          final token = settings.arguments;
           if (token == null || token is! String) {
-            return MaterialPageRoute (
-              builder: (_) => const LoginScreen(),
-            );
+            return MaterialPageRoute(builder: (_) => const LoginScreen());
           }
-
           return MaterialPageRoute(
-            builder: (_) => MarketOutlookScreen(token:token),
+            builder: (_) => MarketOutlookScreen(token: token),
           );
         }
 
-        // Upload market outlook //
-        if (settings.name == "/upload_market_outlook") {
+        // ── Upload Market Outlook ─────────────────────────────────────────────
+        if (settings.name == '/upload_market_outlook') {
           final token = settings.arguments;
           if (token == null || token is! String) {
-              return MaterialPageRoute(builder: (_) => const LoginScreen());
-            }
-
+            return MaterialPageRoute(builder: (_) => const LoginScreen());
+          }
           return MaterialPageRoute(
             builder: (_) => Upload_Market_Outlook(token: token),
           );
         }
 
-        // Bagian Research Coin Screen //
-        if (settings.name == "/research-coin") {
+        // ── Research Coin ─────────────────────────────────────────────────────
+        if (settings.name == '/research-coin') {
           final token = settings.arguments;
           if (token == null || token is! String) {
-            return MaterialPageRoute (
-              builder: (_) => const LoginScreen(),
-            );
+            return MaterialPageRoute(builder: (_) => const LoginScreen());
           }
-
           return MaterialPageRoute(
             builder: (_) => ResearchCoinScreen(token: token),
           );
         }
 
-        // Bagian Upload Research Coin //
-        if (settings.name == "/upload_research_coin") {
+        // ── Upload Research Coin ──────────────────────────────────────────────
+        if (settings.name == '/upload_research_coin') {
           final token = settings.arguments;
           if (token == null || token is! String) {
-              return MaterialPageRoute(builder: (_) => const LoginScreen());
-            }
-
+            return MaterialPageRoute(builder: (_) => const LoginScreen());
+          }
           return MaterialPageRoute(
             builder: (_) => UploadResearchCoinScreen(token: token),
           );
         }
 
-        // Street View Screen //
-        if (settings.name == "/street_view") {
+        // ── Street View ───────────────────────────────────────────────────────
+        // ⚠️  PROTECTED — hanya ADMIN & EXCLUSIVE
+        if (settings.name == '/street_view') {
+          // Street view tidak terima token via arguments sekarang
+          // Tapi kita butuh token untuk guard — ambil dari arguments kalau ada
           final token = settings.arguments;
-
           if (token == null || token is! String) {
-            return MaterialPageRoute(
-              builder: (_) => const LoginScreen(),
-            );
+            // Kalau tidak ada token → anggap tidak login
+            return MaterialPageRoute(builder: (_) => const LoginScreen());
           }
-
           return MaterialPageRoute(
-            builder: (_) => CryptoStreetViewScreen(),
+            builder: (_) => RoleGuard(
+              token: token,
+              child: CryptoStreetViewScreen(),
+            ),
           );
         }
 
         return null;
       },
+    );
+  }
+}
+
+// ✅ SplashScreen — cek token, arahkan ke halaman yang benar
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _checkLoginStatus();
+  }
+
+  Future<void> _checkLoginStatus() async {
+    // Ambil token dari SharedPreferences
+    final token = await AuthStorage.getToken();
+
+    if (!mounted) return;
+
+    if (token != null && token.isNotEmpty) {
+      // ✅ Token ada → langsung ke /home, pass token sebagai arguments
+      Navigator.pushReplacementNamed(
+        context,
+        '/home',
+        arguments: token, // ← HomeScreen butuh token via arguments
+      );
+    } else {
+      // Belum login → ke halaman login
+      Navigator.pushReplacementNamed(context, '/login');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Tampilan saat loading — bisa diganti logo EXXE.LAB
+    return const Scaffold(
+      backgroundColor: Color(0xFF0A0A0A),
+      body: Center(
+        child: CircularProgressIndicator(
+          color: Color(0xFFBEFF00), // warna accent EXXE.LAB
+        ),
+      ),
     );
   }
 }

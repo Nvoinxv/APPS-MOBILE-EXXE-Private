@@ -30,6 +30,7 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 
+
 from news_data import NewsUpdater
 
 # NewsArticle hanya dipakai untuk type hint — tidak di-import saat runtime

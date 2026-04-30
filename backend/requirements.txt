@@ -1,6 +1,7 @@
 fastapi==0.115.6
 pymongo==4.10.1
 psycopg2-binary==2.9.7
+python-dateutil==2.9.0.post0
 
 # ── Google AI ────────────────────────────────────────────────────────────────
 # PENTING: gunakan google-genai (bukan google-generativeai)

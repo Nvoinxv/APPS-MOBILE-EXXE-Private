@@ -26,6 +26,7 @@ class GeneratedNewsArticle {
   final String generatedTitle;
   final String generatedSummary;  // ← FIELD BARU: 1–2 kalimat, maks ~200 karakter
   final String generatedBody;
+  final String imageUrl;
 
   final String sentiment;
   final double confidence;
@@ -48,6 +49,7 @@ class GeneratedNewsArticle {
     required this.score,
     required this.generatedAt,
     required this.owner,
+    required this.imageUrl,
   });
 
   factory GeneratedNewsArticle.fromJson(Map<String, dynamic> json) {
@@ -58,6 +60,7 @@ class GeneratedNewsArticle {
       originalDomain:    json['original_domain']    as String? ?? '',
       originalPublished: json['original_published'] as String? ?? '',
       generatedTitle:    json['generated_title']    as String? ?? '',
+      imageUrl: json['Image'] as String? ?? '',
       // ← Baca dari JSON; fallback ke 2 kalimat pertama body jika kosong
       generatedSummary:  _extractSummary(json),
       generatedBody:     json['generated_body']     as String? ?? '',
@@ -103,6 +106,7 @@ class GeneratedNewsArticle {
     'original_published': originalPublished,
     'generated_title':    generatedTitle,
     'generated_summary':  generatedSummary,   // ← include di toJson untuk detail screen
+    'Image': imageUrl,
     'generated_body':     generatedBody,
     'sentiment':          sentiment,
     'confidence':         confidence,
