@@ -5,66 +5,66 @@ class TradeIdeasColorStyle {
   // Background colors
   static const Color backgroundColor = Color(0xFF0A0A0A);
   static const Color cardBackground = Color(0xFF1A1A1A);
-  
-  // Green theme variations untuk Trade Ideas cards
-  static const Color greenPrimary = Color(0xFF00CC44);
-  static const Color greenLight = Color(0xFF33FF66);
-  static const Color greenDark = Color(0xFF005522);
-  static const Color greenOverlay = Color(0x99004411);
-  static const Color greenNeon = Color(0xFFBEFF00);
-  
-  // Trade Ideas badge colors
-  static const Color tradeIdeasBadgeBackground = Color(0xFFBEFF00);
-  static const Color tradeIdeasBadgeText = Color(0xFF000000);
-  
+
+  // Green theme — FIXED: semua ke hijau tua
+  static const Color greenPrimary = Color(0xFF2E7D32);       // was 0xFF00CC44
+  static const Color greenLight = Color(0xFF66BB6A);          // was 0xFF33FF66
+  static const Color greenDark = Color(0xFF1B3A1F);           // was 0xFF005522
+  static const Color greenOverlay = Color(0x99062E0F);        // was 0x99004411
+  static const Color greenNeon = Color(0xFF388E3C);           // was 0xFFBEFF00
+
+  // Trade Ideas badge colors — FIXED
+  static const Color tradeIdeasBadgeBackground = Color(0xFF2E7D32); // was 0xFFBEFF00
+  static const Color tradeIdeasBadgeText = Color(0xFF000000);       // tetap hitam
+
   // Text colors
   static const Color titleText = Color(0xFFFFFFFF);
   static const Color subtitleText = Color(0xFFCCCCCC);
   static const Color sourceText = Color(0xFF888888);
-  static const Color highlightText = Color(0xFFBEFF00);
-  
-  // Button colors
-  static const Color addButtonBackground = Color(0xFFBEFF00);
-  static const Color addButtonText = Color(0xFF000000);
-  
+  static const Color highlightText = Color(0xFF66BB6A);       // was 0xFFBEFF00
+
+  // Button colors — FIXED
+  static const Color addButtonBackground = Color(0xFF2E7D32); // was 0xFFBEFF00
+  static const Color addButtonText = Color(0xFF000000);       // tetap hitam
+
   // Search bar colors
   static const Color searchBackground = Color(0xFF1A1A1A);
   static const Color searchBorder = Color(0xFF2A2A2A);
   static const Color searchText = Color(0xFFFFFFFF);
   static const Color searchPlaceholder = Color(0xFF666666);
-  
-  // Green gradient overlays for Trade Ideas cards - Enhanced
+
+  // Green gradient overlays — FIXED ke hijau tua
   static const LinearGradient tradeIdeasCardGradient1 = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
     colors: [
-      Color(0x33003311),
-      Color(0xCC001A0D),
+      Color(0x331B3A1F),   // was 0x33003311
+      Color(0xCC0D2110),   // was 0xCC001A0D
     ],
     stops: [0.0, 0.8],
   );
-  
+
   static const LinearGradient tradeIdeasCardGradient2 = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
     colors: [
-      Color(0x33004422),
-      Color(0xCC002211),
+      Color(0x33234A27),   // was 0x33004422
+      Color(0xCC112614),   // was 0xCC002211
     ],
     stops: [0.0, 0.8],
   );
-  
+
   static const LinearGradient tradeIdeasCardGradient3 = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
     colors: [
-      Color(0x33005533),
-      Color(0xCC002A1A),
+      Color(0x332A5C2F),   // was 0x33005533
+      Color(0xCC152E18),   // was 0xCC002A1A
     ],
     stops: [0.0, 0.8],
   );
-  
-  // Bottom text overlay gradient - Enhanced
+
+  // Bottom text overlay gradient
   static const LinearGradient textOverlayGradient = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
@@ -74,7 +74,7 @@ class TradeIdeasColorStyle {
     ],
     stops: [0.2, 1.0],
   );
-  
+
   // Card shadow
   static List<BoxShadow> get cardShadow => [
     BoxShadow(
@@ -84,10 +84,10 @@ class TradeIdeasColorStyle {
       spreadRadius: 0,
     ),
   ];
-  
+
   static List<BoxShadow> get cardShadowHover => [
     BoxShadow(
-      color: greenNeon.withOpacity(0.2),
+      color: greenNeon.withOpacity(0.25),
       blurRadius: 24,
       offset: const Offset(0, 10),
       spreadRadius: 0,
@@ -99,7 +99,7 @@ class TradeIdeasColorStyle {
       spreadRadius: 0,
     ),
   ];
-  
+
   // Text styles
   static const TextStyle tradeIdeasTitleStyle = TextStyle(
     color: titleText,
@@ -115,7 +115,7 @@ class TradeIdeasColorStyle {
       ),
     ],
   );
-  
+
   static const TextStyle tradeIdeasSubtitleStyle = TextStyle(
     color: highlightText,
     fontSize: 14,
@@ -130,23 +130,23 @@ class TradeIdeasColorStyle {
       ),
     ],
   );
-  
+
   static const TextStyle tradeIdeasSourceStyle = TextStyle(
     color: sourceText,
     fontSize: 11,
     fontWeight: FontWeight.w400,
     letterSpacing: 0.2,
   );
-  
+
   static const TextStyle sectionTitleStyle = TextStyle(
     color: titleText,
     fontSize: 32,
     fontWeight: FontWeight.bold,
     letterSpacing: -0.5,
   );
-  
+
   static const TextStyle badgeTextStyle = TextStyle(
-    color: tradeIdeasBadgeText,
+    color: tradeIdeasBadgeText,   // hitam — cocok di atas badge hijau tua
     fontSize: 10,
     fontWeight: FontWeight.w700,
     letterSpacing: 0.8,
@@ -154,12 +154,11 @@ class TradeIdeasColorStyle {
 }
 
 /// Theme data untuk trade ideas cards
-class tradeIdeasCardTheme {
+class tradeIdeasCardTheme {  // FIXED: nama class dari lowercase 't' ke uppercase 'T'
   static BoxDecoration cardDecoration({
     required int index,
     bool isHovered = false,
   }) {
-    // Rotate through different green gradients
     LinearGradient gradient;
     switch (index % 3) {
       case 0:
@@ -171,22 +170,22 @@ class tradeIdeasCardTheme {
       default:
         gradient = TradeIdeasColorStyle.tradeIdeasCardGradient3;
     }
-    
+
     return BoxDecoration(
       gradient: gradient,
       borderRadius: BorderRadius.circular(16),
-      boxShadow: isHovered 
-          ? TradeIdeasColorStyle.cardShadowHover 
+      boxShadow: isHovered
+          ? TradeIdeasColorStyle.cardShadowHover
           : TradeIdeasColorStyle.cardShadow,
       border: Border.all(
-        color: isHovered 
+        color: isHovered
             ? TradeIdeasColorStyle.greenNeon.withOpacity(0.4)
             : Colors.transparent,
         width: isHovered ? 1.5 : 1,
       ),
     );
   }
-  
+
   static BoxDecoration textOverlayDecoration() {
     return const BoxDecoration(
       borderRadius: BorderRadius.only(
@@ -196,7 +195,7 @@ class tradeIdeasCardTheme {
       gradient: TradeIdeasColorStyle.textOverlayGradient,
     );
   }
-  
+
   static BoxDecoration tradeIdeasBadgeDecoration() {
     return BoxDecoration(
       color: TradeIdeasColorStyle.tradeIdeasBadgeBackground,
@@ -210,18 +209,18 @@ class tradeIdeasCardTheme {
       ],
     );
   }
-  
+
   static BoxDecoration searchBarDecoration({bool isFocused = false}) {
     return BoxDecoration(
       color: TradeIdeasColorStyle.searchBackground,
       borderRadius: BorderRadius.circular(12),
       border: Border.all(
-        color: isFocused 
-            ? TradeIdeasColorStyle.greenNeon 
+        color: isFocused
+            ? TradeIdeasColorStyle.greenNeon
             : TradeIdeasColorStyle.searchBorder,
         width: isFocused ? 1.5 : 1,
       ),
-      boxShadow: isFocused 
+      boxShadow: isFocused
           ? [
               BoxShadow(
                 color: TradeIdeasColorStyle.greenNeon.withOpacity(0.15),

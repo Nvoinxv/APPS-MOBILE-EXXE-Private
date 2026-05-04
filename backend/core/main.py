@@ -16,6 +16,9 @@ from controller.daily_research_controller import router_daily_research
 from controller.profile_controller import router_profile
 from controller.execute_controller import router_execute_controller
 
+# TradingView Editor (NEW)
+from controller.tradingviewindicator_controller import router_tradingview
+
 # Bagian import router dari exxe quant core
 from ExxeQuantCore.router.base_signal_router import base_signal_router
 from ExxeQuantCore.router.alert_disparcher_router import alert_router
@@ -45,12 +48,9 @@ app.add_middleware(
 )
 app.add_middleware(LoggingMiddleware)
 
+
 # ── Helper: mount static folder dengan fallback log ─────────────────────────
 def _mount_static(route: str, rel_dir: str, name: str) -> None:
-    """
-    Mount static folder hanya jika direktorinya ada.
-    Jika tidak ada, cetak warning agar mudah di-debug — tidak crash.
-    """
     abs_dir = BASE_DIR / rel_dir
     if abs_dir.exists() and abs_dir.is_dir():
         app.mount(route, StaticFiles(directory=str(abs_dir)), name=name)
@@ -58,13 +58,15 @@ def _mount_static(route: str, rel_dir: str, name: str) -> None:
     else:
         print(f"[STATIC] ⚠  Direktori tidak ditemukan, skip mount: {abs_dir}")
 
+
 _mount_static("/images_folder_path_exclusive", "images_folder_path_exclusive", "exclusive")
 _mount_static("/images_street_view_path",      "images_street_view_path",      "street")
 _mount_static("/images_research_coin_path",    "images_research_coin_path",    "coin")
 _mount_static("/images_quant_path",            "images_quant_path",            "quant")
 _mount_static("/market_outlook_path",          "market_outlook_path",          "market")
 _mount_static("/images_daily_research_path",   "images_daily_research_path",   "daily")
-_mount_static("/uploads_images_profile",  "uploads_images_profile", "profile")
+_mount_static("/uploads_images_profile",       "uploads_images_profile",       "profile")
+
 
 # ── Include Routers ──────────────────────────────────────────────────────────
 
@@ -82,6 +84,9 @@ app.include_router(router_research_coin)
 app.include_router(the_street_view_route)
 app.include_router(router_profile)
 app.include_router(router_execute_controller, tags=["Python Terminal"])
+
+# TradingView Editor (NEW)
+app.include_router(router_tradingview)
 
 # ExxeQuantCore
 app.include_router(base_signal_router, prefix="/api/v1/signal", tags=["Signal"])
@@ -122,5 +127,19 @@ def read_root():
             "ai_news_generate":   "POST /ai/news/generate",
             "ai_news_custom":     "POST /ai/news/generate/custom",
             "ai_news_background": "POST /ai/news/generate/background",
+            # TradingView Editor
+            "tv_workspace":        "GET  /tradingview/workspace",
+            "tv_create_folder":    "POST /tradingview/workspace/folders",
+            "tv_update_folder":    "PATCH /tradingview/workspace/folders/{id}",
+            "tv_delete_folder":    "DELETE /tradingview/workspace/folders/{id}",
+            "tv_create_file":      "POST /tradingview/workspace/files",
+            "tv_update_file":      "PATCH /tradingview/workspace/files/{id}",
+            "tv_save_file":        "POST /tradingview/workspace/files/{id}/save",
+            "tv_delete_file":      "DELETE /tradingview/workspace/files/{id}",
+            "tv_indicators":       "GET  /tradingview/indicators",
+            "tv_create_indicator": "POST /tradingview/indicators",
+            "tv_update_indicator": "PATCH /tradingview/indicators/{id}",
+            "tv_delete_indicator": "DELETE /tradingview/indicators/{id}",
+            "tv_toggle_favorite":  "POST /tradingview/indicators/{id}/favorite",
         },
     }

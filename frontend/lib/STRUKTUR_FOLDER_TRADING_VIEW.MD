@@ -41,6 +41,8 @@ utils/
 ├── helpers.dart                     # (existing)
 ├── role_guard.dart                  # (existing) — ini dipake buat guard admin
 └── python_syntax_highlighter.dart  # NEW: tokenizer Python
+persistence_service.dart — abstraksi baca/tulis Hive
+workspace_state.dart WorkspaceState yang auto-save ke Hive
 
 
 

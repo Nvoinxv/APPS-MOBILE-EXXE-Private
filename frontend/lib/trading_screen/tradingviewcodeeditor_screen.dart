@@ -1,18 +1,17 @@
 // =============================================================================
-// tradingviewcodeeditor_screen.dart
-// Path: frontend/lib/trading_screen/tradingviewcodeeditor_screen.dart
+// tradingviewcodeeditor_screen.dart — PATCH
 //
-// FIX v_tabbar_final:
-//  - [ROOT CAUSE] `hide EditorToolbar` pada editor_tab_bar.dart tidak cukup
-//    kalau EditorTabBar tidak ter-expose sebagai top-level export dari file itu.
-//    Dart's "The method 'EditorTabBar' isn't defined" berarti class-nya tidak
-//    masuk scope — bukan ambiguous, tapi benar-benar tidak ditemukan.
-//  - [FIX] Ganti import combinator yang fragile dengan:
-//      • editor_tab_bar.dart  → import dengan prefix `tab_bar_lib`
-//      • editor_toolbar.dart  → import normal (tanpa prefix)
-//    Dengan prefix, `EditorTabBar` dipanggil sebagai `tab_bar_lib.EditorTabBar`
-//    → tidak ada ambiguity, tidak ada "not found".
-//  - Semua logic, widget, dan struktur tidak diubah sama sekali.
+// FIX 1 (_onNewFile): addFile() sekarang di-await dengan benar.
+//        Sebelumnya: hook.openFile(hook.workspace.addFile(...))  ← Future
+//        Sesudah:    final f = await hook.workspace.addFile(...); hook.openFile(f)
+//
+// FIX 2 (_onCreateNewIndicator): addFile() sekarang di-await dengan benar.
+//        Method juga diubah jadi async.
+//        Sebelumnya: final newFile = hook.workspace.addFile(...)  ← Future
+//        Sesudah:    final newFile = await hook.workspace.addFile(...)
+//
+// Semua perubahan ditandai dengan komentar "// FIX" di inline.
+// Bagian lain identik dengan versi sebelumnya.
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -28,19 +27,14 @@ import '../../models/script_folder.dart';
 
 import 'output_console/console_state.dart';
 
-// BreakpointState — satu definisi, dari sini saja
 import 'tradingview/line_number_gutter.dart';
-
 import 'tradingview/code_editor_widget.dart';
 import 'tradingview/file_explorer_panel.dart';
 import 'tradingview/file_tile.dart';
 import 'tradingview/folder_tree_tile.dart';
 import 'tradingview/context_menu_file.dart';
-
-// EditorToolbar tetap import normal — tidak ada konflik setelah pakai prefix di atas
 import 'tradingview/editor_toolbar.dart';
 import 'tradingview/editor_tab_bar.dart' as tab_bar_lib;
-
 import 'tradingview/output_console_panel.dart';
 import 'tradingview/resizable_divider.dart';
 
@@ -57,8 +51,8 @@ class _TradingViewCodeEditorScreenState
 
   // ── Layout ValueNotifiers ──────────────────────────────────────────────────
 
-  late final ValueNotifier<double> _explorerWidth = ValueNotifier(240);
-  late final ValueNotifier<double> _consoleHeight = ValueNotifier(180);
+  late final ValueNotifier<double> _explorerWidth  = ValueNotifier(240);
+  late final ValueNotifier<double> _consoleHeight  = ValueNotifier(180);
 
   // ── Bool state ─────────────────────────────────────────────────────────────
 
@@ -301,6 +295,9 @@ class _TradingViewCodeEditorScreenState
     ctrl.dispose();
   }
 
+  // FIX: _onNewFile sekarang async dan addFile() di-await dengan benar.
+  // Sebelumnya: hook.openFile(hook.workspace.addFile(...))  ← SALAH, Future bukan ScriptFile
+  // Sesudah: final f = await hook.workspace.addFile(...); hook.openFile(f)
   Future<void> _onNewFile(String parentFolderId) async {
     final ctrl = TextEditingController();
     await _showNameDialog(
@@ -309,8 +306,9 @@ class _TradingViewCodeEditorScreenState
       ctrl:         ctrl,
       hook:         _hook,
       confirmLabel: 'Create',
-      onConfirm: (val) {
-        final f = _hook.workspace.addFile(parentFolderId, val);
+      onConfirm: (val) async {
+        // FIX: await addFile() agar ScriptFile (bukan Future<ScriptFile>) yang dikirim ke openFile
+        final f = await _hook.workspace.addFile(parentFolderId, val);
         _hook.openFile(f);
       },
     );
@@ -342,7 +340,8 @@ class _TradingViewCodeEditorScreenState
     required TextEditingController   ctrl,
     required IsolatedTradingViewHook hook,
     required String                  confirmLabel,
-    required void Function(String)   onConfirm,
+    // FIX: onConfirm kini menerima FutureOr agar bisa async (untuk _onNewFile)
+    required dynamic Function(String) onConfirm,
   }) async {
     final chrome = hook.editorTheme.chrome;
     final syntax = hook.editorTheme.syntax;
@@ -437,6 +436,44 @@ class _TradingViewCodeEditorScreenState
     });
   }
 
+  // FIX: _onCreateNewIndicator sekarang async karena addFile() perlu di-await.
+  // Sebelumnya: final newFile = hook.workspace.addFile(...)  ← Future, crash di openFile()
+  // Sesudah:    final newFile = await hook.workspace.addFile(...)
+  Future<void> _onCreateNewIndicator() async {
+    final hook = _hook;
+
+    // Cari folder personal (non-shared), fallback ke root pertama
+    final roots = hook.workspace.buildFolderTree();
+    if (roots.isEmpty) {
+      // Belum ada folder — buat dulu, lalu tunggu selesai
+      await hook.workspace.addRootFolder('My Indicators');
+    }
+
+    final updatedRoots = hook.workspace.buildFolderTree();
+    if (updatedRoots.isEmpty) return;
+
+    ScriptFolder targetFolder;
+    try {
+      targetFolder = updatedRoots.firstWhere(
+        (r) => !r.id.contains(EditorPermission.sharedOwnerId),
+      );
+    } catch (_) {
+      targetFolder = updatedRoots.first;
+    }
+
+    // FIX: await addFile() agar newFile adalah ScriptFile, bukan Future<ScriptFile>
+    final newFile = await hook.workspace.addFile(
+      targetFolder.id,
+      'untitled_indicator.py',
+    );
+
+    // Buka di editor — sekarang newFile adalah ScriptFile yang valid
+    hook.openFile(newFile);
+
+    // Switch ke FILES tab supaya explorer keliatan, bukan INDICATORS
+    if (mounted) setState(() => _showIndicators = false);
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   //  Build
   // ═══════════════════════════════════════════════════════════════════════════
@@ -517,13 +554,14 @@ class _TradingViewCodeEditorScreenState
                             Expanded(
                               child: _showIndicators
                                   ? IndicatorListView(
-                                      indicators: _indicators,
-                                      permission: hook.permission,
-                                      theme:      _theme,
-                                      selectedId: _selectedIndicatorId,
-                                      onSelect:   _onIndicatorSelect,
-                                      onDelete:   _onIndicatorDelete,
-                                      onEdit:     _onIndicatorEdit,
+                                      indicators:  _indicators,
+                                      permission:  hook.permission,
+                                      theme:       _theme,
+                                      selectedId:  _selectedIndicatorId,
+                                      onSelect:    _onIndicatorSelect,
+                                      onDelete:    _onIndicatorDelete,
+                                      onEdit:      _onIndicatorEdit,
+                                      onCreateNew: _onCreateNewIndicator,
                                     )
                                   : FileExplorerPanel(
                                       hook:             hook,
@@ -563,8 +601,6 @@ class _TradingViewCodeEditorScreenState
                                   onTap: () => setState(() =>
                                       _explorerVisible = !_explorerVisible),
                                 ),
-                              // [FIX] Panggil via prefix — dijamin resolve ke
-                              // EditorTabBar di editor_tab_bar.dart, bukan ambiguous
                               Expanded(child: tab_bar_lib.EditorTabBar(hook: hook)),
                             ],
                           ),

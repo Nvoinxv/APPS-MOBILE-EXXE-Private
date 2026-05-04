@@ -1,177 +1,433 @@
 // =============================================================================
 // tradingview_hook.dart
-// Path: frontend/lib/hooks/tradingview_hook.dart
-//
-// Local state manager untuk Python Script Editor.
-// Model ScriptFile & ScriptFolder sudah dipisah ke:
-//   → lib/trading_screen/models/script_file.dart
-//   → lib/trading_screen/models/script_folder.dart
-//
-// WorkspaceState sekarang pakai flat list — relasi parent/child
-// lewat parentFolderId, bukan nested object.
+// FIX: _TvApi sekarang menggunakan AuthStorage.get/post/patch/delete
+//      sebagai pengganti raw http.* calls.
+//      - Tidak ada lagi hardcoded URL / baseUrl problem
+//      - Auto token injection + auto refresh 401 sudah ditangani AuthStorage
+//      - delete helper ditambahkan langsung via http karena AuthStorage
+//        belum expose delete() — tapi tetap pakai kBaseUrl dari auth_storage.
 // =============================================================================
 
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+
 import '../style/apps_colors_tradingview.dart';
 import '../models/script_file.dart';
 import '../models/script_folder.dart';
+import '../utils/auth_storage.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  ID Generator — private, hanya dipakai di file ini
+//  API Client helper
+//  Semua request sekarang lewat AuthStorage agar:
+//    1. Base URL selalu dari kBaseUrl (satu sumber kebenaran)
+//    2. Bearer token otomatis di-inject
+//    3. Auto-refresh kalau dapat 401
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _TvApi {
+  // ── DELETE helper (AuthStorage belum punya, jadi kita buat sendiri
+  //    tapi tetap pakai kBaseUrl + token dari AuthStorage) ──────────────────
+  static Future<http.Response> _delete(String path) async {
+    final token = await AuthStorage.getToken();
+    final uri   = Uri.parse('$kBaseUrl$path');
+    var response = await http.delete(
+      uri,
+      headers: {
+        'Content-Type':  'application/json',
+        if (token != null) 'Authorization': 'Bearer $token',
+      },
+    );
+
+    // Auto-refresh kalau 401
+    if (response.statusCode == 401) {
+      final refreshed = await AuthStorage.refreshAccessToken();
+      if (refreshed) {
+        final newToken = await AuthStorage.getToken();
+        response = await http.delete(
+          uri,
+          headers: {
+            'Content-Type':  'application/json',
+            if (newToken != null) 'Authorization': 'Bearer $newToken',
+          },
+        );
+      }
+    }
+    return response;
+  }
+
+  // ── Workspace ─────────────────────────────────────────────────────────────
+
+  static Future<Map<String, dynamic>> getWorkspace() async {
+    final res = await AuthStorage.get('/tradingview/workspace');
+    _checkStatus(res);
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  // ── Folder ────────────────────────────────────────────────────────────────
+
+  static Future<Map<String, dynamic>> createFolder({
+    required String name,
+    String? parentFolderId,
+  }) async {
+    final res = await AuthStorage.post(
+      '/tradingview/workspace/folders',
+      body: {'name': name, 'parent_folder_id': parentFolderId},
+    );
+    _checkStatus(res);
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  static Future<void> updateFolder(
+    String folderId, {
+    String? name,
+    bool?   isExpanded,
+  }) async {
+    final body = <String, dynamic>{};
+    if (name       != null) body['name']        = name;
+    if (isExpanded != null) body['is_expanded'] = isExpanded;
+
+    final res = await AuthStorage.patch(
+      '/tradingview/workspace/folders/$folderId',
+      body: body,
+    );
+    _checkStatus(res);
+  }
+
+  static Future<void> deleteFolder(String folderId) async {
+    final res = await _delete('/tradingview/workspace/folders/$folderId');
+    _checkStatus(res);
+  }
+
+  // ── File ──────────────────────────────────────────────────────────────────
+
+  static Future<Map<String, dynamic>> createFile({
+    required String name,
+    required String content,
+    String? parentFolderId,
+  }) async {
+    final res = await AuthStorage.post(
+      '/tradingview/workspace/files',
+      body: {
+        'name':             name,
+        'content':          content,
+        'parent_folder_id': parentFolderId,
+      },
+    );
+    _checkStatus(res);
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  static Future<void> updateFile(
+    String fileId, {
+    String? name,
+    String? content,
+  }) async {
+    final body = <String, dynamic>{};
+    if (name    != null) body['name']    = name;
+    if (content != null) body['content'] = content;
+
+    final res = await AuthStorage.patch(
+      '/tradingview/workspace/files/$fileId',
+      body: body,
+    );
+    _checkStatus(res);
+  }
+
+  static Future<void> saveFile(String fileId) async {
+    final res = await AuthStorage.post(
+      '/tradingview/workspace/files/$fileId/save',
+    );
+    _checkStatus(res);
+  }
+
+  static Future<void> deleteFile(String fileId) async {
+    final res = await _delete('/tradingview/workspace/files/$fileId');
+    _checkStatus(res);
+  }
+
+  // ── Status check ─────────────────────────────────────────────────────────
+
+  static void _checkStatus(http.Response res) {
+    if (res.statusCode >= 400) {
+      throw Exception('API ${res.statusCode}: ${res.body}');
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Model parsers
+// ─────────────────────────────────────────────────────────────────────────────
+
+ScriptFile _fileFromJson(Map<String, dynamic> j) => ScriptFile(
+      id:             j['id']               as String,
+      name:           j['name']             as String,
+      content:        j['content']          as String? ?? '',
+      parentFolderId: j['parent_folder_id'] as String?,
+      createdAt:      DateTime.parse(j['created_at'] as String),
+      updatedAt:      DateTime.parse(j['updated_at'] as String),
+    );
+
+ScriptFolder _folderFromJson(Map<String, dynamic> j) => ScriptFolder(
+      id:             j['id']               as String,
+      name:           j['name']             as String,
+      parentFolderId: j['parent_folder_id'] as String?,
+      isExpanded:     j['is_expanded']      as bool? ?? true,
+    );
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ID Generator (optimistic insert)
 // ─────────────────────────────────────────────────────────────────────────────
 
 int _counter = 0;
-String _uid() =>
-    'node_${DateTime.now().millisecondsSinceEpoch}_${_counter++}';
+String _tempId() =>
+    'tmp_${DateTime.now().millisecondsSinceEpoch}_${_counter++}';
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  STATE: WorkspaceState
-//  Flat list of ScriptFile & ScriptFolder.
-//  Relasi parent/child via parentFolderId.
+//  WorkspaceState
 // ─────────────────────────────────────────────────────────────────────────────
 
 class WorkspaceState extends ChangeNotifier {
-  final List<ScriptFile>   _files;
-  final List<ScriptFolder> _folders;
+  final List<ScriptFile>   _files   = [];
+  final List<ScriptFolder> _folders = [];
 
-  WorkspaceState({
-    List<ScriptFile>?   files,
-    List<ScriptFolder>? folders,
-  })  : _files   = files   ?? [],
-        _folders = folders ?? [] {
-    if (_files.isEmpty && _folders.isEmpty) _initDefault();
-  }
+  bool    _isLoading = false;
+  String? _error;
 
-  // ── Getters ───────────────────────────────────────────────────────────────
+  bool    get isLoading => _isLoading;
+  String? get error     => _error;
 
   List<ScriptFile>   get files   => List.unmodifiable(_files);
   List<ScriptFolder> get folders => List.unmodifiable(_folders);
 
-  /// Root folders — tidak punya parent
   List<ScriptFolder> get rootFolders =>
       _folders.where((f) => f.parentFolderId == null).toList();
 
-  /// Files langsung di root (tidak dalam folder manapun)
   List<ScriptFile> get rootFiles =>
       _files.where((f) => f.parentFolderId == null).toList();
 
-  /// Files dalam folder tertentu
   List<ScriptFile> filesInFolder(String folderId) =>
       _files.where((f) => f.parentFolderId == folderId).toList();
 
-  /// Subfolders dalam folder tertentu
-  List<ScriptFolder> subFolders(String folderId) =>
+  List<ScriptFolder> subFoldersOf(String folderId) =>
       _folders.where((f) => f.parentFolderId == folderId).toList();
 
-  /// Cari file by id
   ScriptFile? findFile(String fileId) {
-    try {
-      return _files.firstWhere((f) => f.id == fileId);
-    } catch (_) {
-      return null;
-    }
+    try { return _files.firstWhere((f) => f.id == fileId); }
+    catch (_) { return null; }
   }
 
-  /// Cari folder by id
   ScriptFolder? findFolder(String folderId) {
+    try { return _folders.firstWhere((f) => f.id == folderId); }
+    catch (_) { return null; }
+  }
+
+  List<ScriptFolder> buildFolderTree({String? parentFolderId}) {
+    return _folders
+        .where((f) => f.parentFolderId == parentFolderId)
+        .map((folder) => folder.copyWith(
+              files:      filesInFolder(folder.id),
+              subFolders: buildFolderTree(parentFolderId: folder.id),
+            ))
+        .toList();
+  }
+
+  List<String> _buildFolderSegments(String folderId) {
+    final segments = <String>[];
+    String? current = folderId;
+    var safetyLimit = 20;
+    while (current != null && safetyLimit-- > 0) {
+      final folder = findFolder(current);
+      if (folder == null) break;
+      segments.insert(0, folder.name);
+      current = folder.parentFolderId;
+    }
+    return segments;
+  }
+
+  String getFilePath(String fileId) {
+    final file = findFile(fileId);
+    if (file == null) return '';
+    final segs = <String>[];
+    if (file.parentFolderId != null) {
+      segs.addAll(_buildFolderSegments(file.parentFolderId!));
+    }
+    segs.add(file.name);
+    return segs.join('/');
+  }
+
+  String getFolderPath(String folderId) =>
+      findFolder(folderId) == null
+          ? ''
+          : _buildFolderSegments(folderId).join('/');
+
+  List<String> getFilePathSegments(String fileId) {
+    final file = findFile(fileId);
+    if (file == null) return [];
+    final segs = <String>[];
+    if (file.parentFolderId != null) {
+      segs.addAll(_buildFolderSegments(file.parentFolderId!));
+    }
+    segs.add(file.name);
+    return segs;
+  }
+
+  List<String> getFolderPathSegments(String folderId) =>
+      findFolder(folderId) == null ? [] : _buildFolderSegments(folderId);
+
+  void _syncFolderFiles(String? folderId) {
+    if (folderId == null) return;
+    final idx = _folders.indexWhere((f) => f.id == folderId);
+    if (idx == -1) return;
+    _folders[idx] = _folders[idx].copyWith(
+      files: _files.where((f) => f.parentFolderId == folderId).toList(),
+    );
+  }
+
+  void _syncFolderChildren(String? parentFolderId) {
+    if (parentFolderId == null) return;
+    final idx = _folders.indexWhere((f) => f.id == parentFolderId);
+    if (idx == -1) return;
+    _folders[idx] = _folders[idx].copyWith(
+      subFolders:
+          _folders.where((f) => f.parentFolderId == parentFolderId).toList(),
+    );
+  }
+
+  Future<void> loadFromServer() async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
     try {
-      return _folders.firstWhere((f) => f.id == folderId);
-    } catch (_) {
-      return null;
+      final data       = await _TvApi.getWorkspace();
+      final rawFolders = (data['folders'] as List).cast<Map<String, dynamic>>();
+      final rawFiles   = (data['files']   as List).cast<Map<String, dynamic>>();
+
+      _folders
+        ..clear()
+        ..addAll(rawFolders.map(_folderFromJson));
+      _files
+        ..clear()
+        ..addAll(rawFiles.map(_fileFromJson));
+
+      for (final f in _folders) {
+        _syncFolderFiles(f.id);
+        _syncFolderChildren(f.id);
+      }
+    } catch (e) {
+      _error = e.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
   }
-
-  // ── Default workspace ─────────────────────────────────────────────────────
-
-  void _initDefault() {
-    final rootId       = _uid();
-    final stratId      = _uid();
-    final indicatorId  = _uid();
-    final now          = DateTime.now();
-
-    _folders.addAll([
-      ScriptFolder(id: rootId,      name: 'workspace',   isExpanded: true),
-      ScriptFolder(id: stratId,     name: 'strategies',  parentFolderId: rootId),
-      ScriptFolder(id: indicatorId, name: 'indicators',  parentFolderId: rootId),
-    ]);
-
-    _files.add(ScriptFile(
-      id:             _uid(),
-      name:           'main.py',
-      content:        _defaultPythonScript(),
-      parentFolderId: rootId,
-      createdAt:      now,
-      updatedAt:      now,
-    ));
-  }
-
-  static String _defaultPythonScript() => '''# EXXE.LAB — Python Script Editor
-def calculate_signal(close: list, period: int = 14) -> float:
-    if len(close) < period:
-        return 0.0
-
-    gains, losses = [], []
-    for i in range(1, period + 1):
-        diff = close[-i] - close[-i - 1]
-        if diff > 0: gains.append(diff)
-        else:        losses.append(abs(diff))
-
-    avg_gain = sum(gains)  / period if gains  else 0.0
-    avg_loss = sum(losses) / period if losses else 0.0
-
-    if avg_loss == 0:
-        return 100.0
-
-    rs  = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
-
-
-if __name__ == "__main__":
-    prices = [100, 102, 101, 105, 107, 106, 110, 108, 112, 115,
-              114, 116, 118, 117, 120, 119]
-    signal = calculate_signal(prices)
-    print(f"Signal value: {signal:.2f}")
-''';
-
-  // ── Folder operations ─────────────────────────────────────────────────────
 
   void toggleFolder(String folderId) {
     final idx = _folders.indexWhere((f) => f.id == folderId);
     if (idx == -1) return;
+    final newExpanded = !_folders[idx].isExpanded;
     _folders[idx] = _folders[idx].toggled();
     notifyListeners();
+    _TvApi.updateFolder(folderId, isExpanded: newExpanded).catchError((_) {});
   }
 
-  void addRootFolder(String name) {
-    _folders.add(ScriptFolder(id: _uid(), name: name, isExpanded: true));
-    notifyListeners();
-  }
-
-  void addFolder(String parentFolderId, String name) {
-    _folders.add(ScriptFolder(
-      id:             _uid(),
+  Future<ScriptFolder> addFolder(String parentFolderId, String name) async {
+    final tempId = _tempId();
+    final temp = ScriptFolder(
+      id:             tempId,
       name:           name,
       parentFolderId: parentFolderId,
       isExpanded:     true,
-    ));
+    );
+    _folders.add(temp);
+    _syncFolderChildren(parentFolderId);
     notifyListeners();
+
+    try {
+      final json   = await _TvApi.createFolder(name: name, parentFolderId: parentFolderId);
+      final realId = json['id'] as String;
+      final idx    = _folders.indexWhere((f) => f.id == tempId);
+      if (idx != -1) {
+        _folders[idx] = _folderFromJson(json);
+        _syncFolderChildren(parentFolderId);
+        notifyListeners();
+      }
+      return _folders.firstWhere((f) => f.id == realId, orElse: () => temp);
+    } catch (e) {
+      _folders.removeWhere((f) => f.id == tempId);
+      _syncFolderChildren(parentFolderId);
+      notifyListeners();
+      rethrow;
+    }
   }
 
-  void renameFolder(String folderId, String newName) {
+  Future<void> addRootFolder(String name) async {
+    final tempId = _tempId();
+    final temp = ScriptFolder(id: tempId, name: name, isExpanded: true);
+    _folders.add(temp);
+    notifyListeners();
+
+    try {
+      final json = await _TvApi.createFolder(name: name);
+      final idx  = _folders.indexWhere((f) => f.id == tempId);
+      if (idx != -1) {
+        _folders[idx] = _folderFromJson(json);
+        notifyListeners();
+      }
+    } catch (e) {
+      _folders.removeWhere((f) => f.id == tempId);
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> renameFolder(String folderId, String newName) async {
     final idx = _folders.indexWhere((f) => f.id == folderId);
     if (idx == -1) return;
-    _folders[idx] = _folders[idx].copyWith(name: newName);
+    final oldFolder = _folders[idx];
+    _folders[idx] = oldFolder.copyWith(name: newName);
+    _syncFolderChildren(oldFolder.parentFolderId);
     notifyListeners();
+
+    try {
+      await _TvApi.updateFolder(folderId, name: newName);
+    } catch (e) {
+      _folders[idx] = oldFolder;
+      _syncFolderChildren(oldFolder.parentFolderId);
+      notifyListeners();
+      rethrow;
+    }
   }
 
-  /// Hapus folder + semua subfolder + semua file di dalamnya (rekursif)
-  void deleteFolder(String folderId) {
+  Future<void> deleteFolder(String folderId) async {
+    final folder = findFolder(folderId);
+    if (folder == null) return;
+    final parentId = folder.parentFolderId;
     final toDelete = _collectFolderIds(folderId);
+
+    final removedFolders =
+        _folders.where((f) => toDelete.contains(f.id)).toList();
+    final removedFiles = _files
+        .where((f) =>
+            f.parentFolderId != null && toDelete.contains(f.parentFolderId))
+        .toList();
+
     _folders.removeWhere((f) => toDelete.contains(f.id));
-    _files.removeWhere((f) =>
-        f.parentFolderId != null && toDelete.contains(f.parentFolderId));
+    _files.removeWhere(
+        (f) => f.parentFolderId != null && toDelete.contains(f.parentFolderId));
+    _syncFolderChildren(parentId);
     notifyListeners();
+
+    try {
+      await _TvApi.deleteFolder(folderId);
+    } catch (e) {
+      _folders.addAll(removedFolders);
+      _files.addAll(removedFiles);
+      _syncFolderChildren(parentId);
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Set<String> _collectFolderIds(String folderId) {
@@ -182,71 +438,129 @@ if __name__ == "__main__":
     return result;
   }
 
-  // ── File operations ───────────────────────────────────────────────────────
-
-  ScriptFile addFile(String parentFolderId, String name) {
+  Future<ScriptFile> addFile(String parentFolderId, String name) async {
+    final tempId   = _tempId();
     final now      = DateTime.now();
     final resolved = name.endsWith('.py') ? name : '$name.py';
-    final newFile  = ScriptFile(
-      id:             _uid(),
+    final temp = ScriptFile(
+      id:             tempId,
       name:           resolved,
       content:        '',
       parentFolderId: parentFolderId,
       createdAt:      now,
       updatedAt:      now,
     );
-    _files.add(newFile);
+    _files.add(temp);
+    _syncFolderFiles(parentFolderId);
     notifyListeners();
-    return newFile;
+
+    try {
+      final json   = await _TvApi.createFile(
+          name: resolved, content: '', parentFolderId: parentFolderId);
+      final realId = json['id'] as String;
+      final idx    = _files.indexWhere((f) => f.id == tempId);
+      if (idx != -1) {
+        _files[idx] = _fileFromJson(json);
+        _syncFolderFiles(parentFolderId);
+        notifyListeners();
+      }
+      return _files.firstWhere((f) => f.id == realId, orElse: () => temp);
+    } catch (e) {
+      _files.removeWhere((f) => f.id == tempId);
+      _syncFolderFiles(parentFolderId);
+      notifyListeners();
+      rethrow;
+    }
   }
 
   void updateFileContent(String fileId, String content) {
     final idx = _files.indexWhere((f) => f.id == fileId);
     if (idx == -1) return;
+    final parentId = _files[idx].parentFolderId;
     _files[idx] = _files[idx].withContent(content);
+    _syncFolderFiles(parentId);
     notifyListeners();
   }
 
-  void saveFile(String fileId) {
+  Future<void> saveFile(String fileId) async {
     final idx = _files.indexWhere((f) => f.id == fileId);
     if (idx == -1) return;
+    final parentId = _files[idx].parentFolderId;
+    final content  = _files[idx].content;
     _files[idx] = _files[idx].asSaved();
+    _syncFolderFiles(parentId);
     notifyListeners();
+
+    try {
+      await _TvApi.updateFile(fileId, content: content);
+      await _TvApi.saveFile(fileId);
+    } catch (e) {
+      final i = _files.indexWhere((f) => f.id == fileId);
+      if (i != -1) {
+        _files[i] = _files[i].withContent(content);
+        _syncFolderFiles(parentId);
+        notifyListeners();
+      }
+      rethrow;
+    }
   }
 
-  void renameFile(String fileId, String newName) {
-    final idx      = _files.indexWhere((f) => f.id == fileId);
+  Future<void> renameFile(String fileId, String newName) async {
+    final idx = _files.indexWhere((f) => f.id == fileId);
     if (idx == -1) return;
+    final oldFile  = _files[idx];
+    final parentId = oldFile.parentFolderId;
     final resolved = newName.endsWith('.py') ? newName : '$newName.py';
-    _files[idx]    = _files[idx].copyWith(name: resolved);
+    _files[idx] = oldFile.copyWith(name: resolved);
+    _syncFolderFiles(parentId);
     notifyListeners();
+
+    try {
+      await _TvApi.updateFile(fileId, name: resolved);
+    } catch (e) {
+      _files[idx] = oldFile;
+      _syncFolderFiles(parentId);
+      notifyListeners();
+      rethrow;
+    }
   }
 
-  void deleteFile(String fileId) {
-    _files.removeWhere((f) => f.id == fileId);
+  Future<void> deleteFile(String fileId) async {
+    final idx = _files.indexWhere((f) => f.id == fileId);
+    if (idx == -1) return;
+    final removed  = _files[idx];
+    final parentId = removed.parentFolderId;
+    _files.removeAt(idx);
+    _syncFolderFiles(parentId);
     notifyListeners();
+
+    try {
+      await _TvApi.deleteFile(fileId);
+    } catch (e) {
+      _files.insert(idx, removed);
+      _syncFolderFiles(parentId);
+      notifyListeners();
+      rethrow;
+    }
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  STATE: TabState
+//  TabState
 // ─────────────────────────────────────────────────────────────────────────────
 
 class TabState extends ChangeNotifier {
-  final List<ScriptFile> _openTabs  = [];
-  ScriptFile?            _activeFile;
+  final List<ScriptFile> _openTabs = [];
+  ScriptFile? _activeFile;
 
-  // ── Getters ───────────────────────────────────────────────────────────────
-
-  List<ScriptFile> get openTabs        => List.unmodifiable(_openTabs);
-  ScriptFile?      get activeFile      => _activeFile;
-  bool             get hasOpenTab      => _openTabs.isNotEmpty;
+  List<ScriptFile> get openTabs    => List.unmodifiable(_openTabs);
+  ScriptFile?      get activeFile  => _activeFile;
+  bool             get hasOpenTab  => _openTabs.isNotEmpty;
   bool             get hasUnsavedChanges => _openTabs.any((t) => t.isModified);
 
-  int get activeIndex =>
-      _activeFile == null ? -1 : _openTabs.indexWhere((t) => t.id == _activeFile!.id);
-
-  // ── Tab operations ────────────────────────────────────────────────────────
+  int get activeIndex => _activeFile == null
+      ? -1
+      : _openTabs.indexWhere((t) => t.id == _activeFile!.id);
 
   void openFile(ScriptFile file) {
     final existingIdx = _openTabs.indexWhere((t) => t.id == file.id);
@@ -270,7 +584,9 @@ class TabState extends ChangeNotifier {
     if (idx == -1) return;
     _openTabs.removeAt(idx);
     if (_activeFile?.id == fileId) {
-      _activeFile = _openTabs.isEmpty ? null : _openTabs[(idx - 1).clamp(0, _openTabs.length - 1)];
+      _activeFile = _openTabs.isEmpty
+          ? null
+          : _openTabs[(idx - 1).clamp(0, _openTabs.length - 1)];
     }
     notifyListeners();
   }
@@ -283,8 +599,6 @@ class TabState extends ChangeNotifier {
 
   void reorder(int oldIndex, int newIndex) {
     if (oldIndex == newIndex) return;
-    if (oldIndex < 0 || oldIndex >= _openTabs.length) return;
-    if (newIndex < 0 || newIndex >= _openTabs.length) return;
     final item = _openTabs.removeAt(oldIndex);
     _openTabs.insert(newIndex, item);
     notifyListeners();
@@ -310,7 +624,7 @@ class TabState extends ChangeNotifier {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  STATE: EditorThemeHookState
+//  EditorThemeHookState
 // ─────────────────────────────────────────────────────────────────────────────
 
 class EditorThemeHookState extends ChangeNotifier {
@@ -319,55 +633,24 @@ class EditorThemeHookState extends ChangeNotifier {
   EditorThemeHookState({EditorThemeState? initial})
       : _theme = initial ?? EditorThemeState();
 
-  EditorThemeState   get theme        => _theme;
-  EditorSyntaxColors get syntax       => _theme.syntax;
-  EditorChromeColors get chrome       => _theme.chrome;
-  EditorTypography   get typography   => _theme.typography;
-  EditorThemePreset  get activePreset => _theme.activePreset;
+  EditorThemeState    get theme        => _theme;
+  EditorSyntaxColors  get syntax       => _theme.syntax;
+  EditorChromeColors  get chrome       => _theme.chrome;
+  EditorTypography    get typography   => _theme.typography;
+  EditorThemePreset   get activePreset => _theme.activePreset;
 
-  void applyTheme(EditorThemeState newTheme) {
-    _theme = newTheme;
-    notifyListeners();
-  }
-
-  void applyPreset(EditorThemePreset preset) {
-    _theme = EditorThemeState.fromPreset(preset);
-    notifyListeners();
-  }
-
-  void updateSyntax(EditorSyntaxColors syntax) {
-    _theme = _theme.copyWith(syntax: syntax);
-    notifyListeners();
-  }
-
-  void updateChrome(EditorChromeColors chrome) {
-    _theme = _theme.copyWith(chrome: chrome);
-    notifyListeners();
-  }
-
-  void updateTypography(EditorTypography typography) {
-    _theme = _theme.copyWith(typography: typography);
-    notifyListeners();
-  }
-
-  void updateBackgroundOpacity(double opacity) {
-    _theme = _theme.copyWith(backgroundOpacity: opacity);
-    notifyListeners();
-  }
-
-  void updateBackgroundImage(String? path) {
-    _theme = _theme.copyWith(backgroundImagePath: path);
-    notifyListeners();
-  }
-
-  void updateBackgroundGradientEnd(Color color) {
-    _theme = _theme.copyWith(backgroundGradientEnd: color);
-    notifyListeners();
-  }
+  void applyTheme(EditorThemeState newTheme)    { _theme = newTheme;                          notifyListeners(); }
+  void applyPreset(EditorThemePreset preset)    { _theme = EditorThemeState.fromPreset(preset); notifyListeners(); }
+  void updateSyntax(EditorSyntaxColors syntax)  { _theme = _theme.copyWith(syntax: syntax);   notifyListeners(); }
+  void updateChrome(EditorChromeColors chrome)  { _theme = _theme.copyWith(chrome: chrome);   notifyListeners(); }
+  void updateTypography(EditorTypography typo)  { _theme = _theme.copyWith(typography: typo); notifyListeners(); }
+  void updateBackgroundOpacity(double opacity)  { _theme = _theme.copyWith(backgroundOpacity: opacity);        notifyListeners(); }
+  void updateBackgroundImage(String? path)      { _theme = _theme.copyWith(backgroundImagePath: path);         notifyListeners(); }
+  void updateBackgroundGradientEnd(Color color) { _theme = _theme.copyWith(backgroundGradientEnd: color);      notifyListeners(); }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  HOOK: TradingViewHook — facade, single entry point
+//  TradingViewHook — facade
 // ─────────────────────────────────────────────────────────────────────────────
 
 class TradingViewHook {
@@ -375,11 +658,21 @@ class TradingViewHook {
   late final TabState             tabs;
   late final EditorThemeHookState editorTheme;
 
-  TradingViewHook() {
+  void Function(String message)? onError;
+
+  TradingViewHook({this.onError}) {
     workspace   = WorkspaceState();
     tabs        = TabState();
     editorTheme = EditorThemeHookState();
-    _openDefaultFile();
+  }
+
+  Future<void> init() async {
+    try {
+      await workspace.loadFromServer();
+      _openDefaultFile();
+    } catch (e) {
+      onError?.call('Gagal memuat workspace: $e');
+    }
   }
 
   void _openDefaultFile() {
@@ -391,13 +684,17 @@ class TradingViewHook {
     }
   }
 
-  void openFile(ScriptFile file)  => tabs.openFile(file);
+  void openFile(ScriptFile file) => tabs.openFile(file);
 
-  void saveActiveFile() {
+  Future<void> saveActiveFile() async {
     final active = tabs.activeFile;
     if (active == null) return;
-    workspace.saveFile(active.id);
-    tabs.markSaved(active.id);
+    try {
+      await workspace.saveFile(active.id);
+      tabs.markSaved(active.id);
+    } catch (e) {
+      onError?.call('Gagal menyimpan file: $e');
+    }
   }
 
   void onCodeChanged(String newContent) {
@@ -407,9 +704,64 @@ class TradingViewHook {
     tabs.updateActiveContent(newContent);
   }
 
-  void deleteFile(String fileId) {
+  Future<void> deleteFile(String fileId) async {
     tabs.closeTab(fileId);
-    workspace.deleteFile(fileId);
+    try {
+      await workspace.deleteFile(fileId);
+    } catch (e) {
+      onError?.call('Gagal menghapus file: $e');
+    }
+  }
+
+  Future<ScriptFile> createFile(String parentFolderId, String name) async {
+    try {
+      final file = await workspace.addFile(parentFolderId, name);
+      tabs.openFile(file);
+      return file;
+    } catch (e) {
+      onError?.call('Gagal membuat file: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> createFolder(String parentFolderId, String name) async {
+    try {
+      await workspace.addFolder(parentFolderId, name);
+    } catch (e) {
+      onError?.call('Gagal membuat folder: $e');
+    }
+  }
+
+  Future<void> renameFile(String fileId, String newName) async {
+    try {
+      await workspace.renameFile(fileId, newName);
+      final idx = tabs.openTabs.indexWhere((t) => t.id == fileId);
+      if (idx != -1) {
+        final updated = workspace.findFile(fileId);
+        if (updated != null) tabs.openFile(updated);
+      }
+    } catch (e) {
+      onError?.call('Gagal rename file: $e');
+    }
+  }
+
+  Future<void> renameFolder(String folderId, String newName) async {
+    try {
+      await workspace.renameFolder(folderId, newName);
+    } catch (e) {
+      onError?.call('Gagal rename folder: $e');
+    }
+  }
+
+  Future<void> deleteFolder(String folderId) async {
+    final affectedIds =
+        workspace.filesInFolder(folderId).map((f) => f.id).toList();
+    for (final id in affectedIds) tabs.closeTab(id);
+    try {
+      await workspace.deleteFolder(folderId);
+    } catch (e) {
+      onError?.call('Gagal menghapus folder: $e');
+    }
   }
 
   void dispose() {
@@ -420,7 +772,7 @@ class TradingViewHook {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  INHERITED WIDGET: TradingViewHookProvider
+//  TradingViewHookProvider
 // ─────────────────────────────────────────────────────────────────────────────
 
 class TradingViewHookProvider extends InheritedWidget {

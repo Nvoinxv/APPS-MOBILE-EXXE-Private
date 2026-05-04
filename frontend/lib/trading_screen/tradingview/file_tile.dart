@@ -2,16 +2,9 @@
 // file_tile.dart
 // Path: frontend/lib/trading_screen/tradingview/components/file_tile.dart
 //
-// Widget: individual file item dalam file explorer.
-// Permission-aware: shared files tampil dengan lock icon buat exclusive.
-//
-// Fitur:
-//   • Highlight active file (sedang di-tab)
-//   • Unsaved dot indicator
-//   • Search: highlight matching substring
-//   • Long-press / right-click → context menu
-//   • Read-only icon buat exclusive di shared folder
-//   • Animated hover state
+// FIX BATCH 4: Tambah `onHoverFile` optional param untuk path detection.
+//   Wire ke MouseRegion onEnter/onExit yang sudah ada — null-safe, zero
+//   breaking change ke caller lama yang belum pass param ini.
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -33,6 +26,8 @@ class FileTile extends StatefulWidget {
   final VoidCallback       onTap;
   final void Function(Offset globalPos) onContextMenu;
   final String             searchQuery;
+  // BATCH 4: path detection — optional, backward-compatible
+  final void Function(ScriptFile?)? onHoverFile;
 
   const FileTile({
     super.key,
@@ -46,6 +41,7 @@ class FileTile extends StatefulWidget {
     required this.onTap,
     required this.onContextMenu,
     required this.searchQuery,
+    this.onHoverFile, // optional
   });
 
   @override
@@ -55,12 +51,8 @@ class FileTile extends StatefulWidget {
 class _FileTileState extends State<FileTile> {
   bool _isHovered = false;
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-
-  bool get isReadOnly =>
-      widget.isShared && !widget.perm.isAdmin;
-
-  double get _indent => (widget.depth * 12.0) + 8.0;
+  bool get isReadOnly => widget.isShared && !widget.perm.isAdmin;
+  double get _indent  => (widget.depth * 12.0) + 8.0;
 
   Color get _bgColor {
     if (widget.isActive) return widget.chrome.cursorColor.withOpacity(0.12);
@@ -73,10 +65,8 @@ class _FileTileState extends State<FileTile> {
     return Colors.transparent;
   }
 
-  // ── File icon by extension ────────────────────────────────────────────────
-
   IconData get _fileIcon {
-    if (widget.file.isPython)     return Icons.code_rounded;
+    if (widget.file.isPython) return Icons.code_rounded;
     switch (widget.file.extension) {
       case 'json': return Icons.data_object_rounded;
       case 'md':   return Icons.description_outlined;
@@ -94,10 +84,6 @@ class _FileTileState extends State<FileTile> {
     return widget.syntax.comment.withOpacity(0.6);
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  //  BUILD
-  // ─────────────────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -108,17 +94,23 @@ class _FileTileState extends State<FileTile> {
       onSecondaryTapUp: (details) =>
           widget.onContextMenu(details.globalPosition),
       onLongPress: () {
-        // Mobile: show context menu at center of tile
-        final box = context.findRenderObject() as RenderBox;
+        final box    = context.findRenderObject() as RenderBox;
         final center = box.localToGlobal(
           Offset(box.size.width / 2, box.size.height / 2),
         );
         widget.onContextMenu(center);
       },
       child: MouseRegion(
-        cursor:  SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _isHovered = true),
-        onExit:  (_) => setState(() => _isHovered = false),
+        cursor: SystemMouseCursors.click,
+        // BATCH 4: fire onHoverFile di onEnter/onExit yang sudah ada
+        onEnter: (_) {
+          setState(() => _isHovered = true);
+          widget.onHoverFile?.call(widget.file);
+        },
+        onExit: (_) {
+          setState(() => _isHovered = false);
+          widget.onHoverFile?.call(null);
+        },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 100),
           height:   27,
@@ -126,26 +118,21 @@ class _FileTileState extends State<FileTile> {
           decoration: BoxDecoration(
             color: _bgColor,
             border: Border(
-              left: BorderSide(
-                color: _borderColor,
-                width: 2,
-              ),
+              left: BorderSide(color: _borderColor, width: 2),
             ),
           ),
           child: Row(
             children: [
-              // File icon
               Icon(_fileIcon, size: 14, color: _fileIconColor),
               const SizedBox(width: 6),
 
-              // File name (with search highlight)
               Expanded(
                 child: widget.searchQuery.isNotEmpty
                     ? _HighlightedText(
-                        text:       widget.file.name,
-                        query:      widget.searchQuery,
-                        baseStyle:  _nameStyle,
-                        chrome:     widget.chrome,
+                        text:      widget.file.name,
+                        query:     widget.searchQuery,
+                        baseStyle: _nameStyle,
+                        chrome:    widget.chrome,
                       )
                     : Text(
                         widget.file.name,
@@ -154,11 +141,9 @@ class _FileTileState extends State<FileTile> {
                       ),
               ),
 
-              // Trailing indicators
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Read-only lock
                   if (isReadOnly)
                     Padding(
                       padding: const EdgeInsets.only(right: 4),
@@ -169,7 +154,6 @@ class _FileTileState extends State<FileTile> {
                       ),
                     ),
 
-                  // Unsaved dot
                   if (widget.file.isModified)
                     Container(
                       width:  6, height: 6,
@@ -180,7 +164,6 @@ class _FileTileState extends State<FileTile> {
                       ),
                     ),
 
-                  // Time (on hover, not active)
                   if (_isHovered && !widget.isActive)
                     Text(
                       _formatTime(widget.file.lastModified),
@@ -198,8 +181,6 @@ class _FileTileState extends State<FileTile> {
     );
   }
 
-  // ── Name style ────────────────────────────────────────────────────────────
-
   TextStyle get _nameStyle => TextStyle(
     color:      widget.isActive
         ? widget.syntax.plain
@@ -211,12 +192,8 @@ class _FileTileState extends State<FileTile> {
     fontStyle:  isReadOnly ? FontStyle.italic : FontStyle.normal,
   );
 
-  // ── Time formatter ────────────────────────────────────────────────────────
-
   String _formatTime(DateTime dt) {
-    final now  = DateTime.now();
-    final diff = now.difference(dt);
-
+    final diff = DateTime.now().difference(dt);
     if (diff.inMinutes < 1)  return 'now';
     if (diff.inMinutes < 60) return '${diff.inMinutes}m';
     if (diff.inHours   < 24) return '${diff.inHours}h';
@@ -226,7 +203,6 @@ class _FileTileState extends State<FileTile> {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  _HighlightedText
-//  Render teks dengan substring yang cocok di-bold + warna accent
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _HighlightedText extends StatelessWidget {
@@ -257,20 +233,18 @@ class _HighlightedText extends StatelessWidget {
     final after  = text.substring(matchIndex + query.length);
 
     return Text.rich(
-      TextSpan(
-        children: [
-          TextSpan(text: before, style: baseStyle),
-          TextSpan(
-            text:  match,
-            style: baseStyle.copyWith(
-              color:           chrome.cursorColor,
-              fontWeight:      FontWeight.w700,
-              backgroundColor: chrome.cursorColor.withOpacity(0.15),
-            ),
+      TextSpan(children: [
+        TextSpan(text: before, style: baseStyle),
+        TextSpan(
+          text:  match,
+          style: baseStyle.copyWith(
+            color:           chrome.cursorColor,
+            fontWeight:      FontWeight.w700,
+            backgroundColor: chrome.cursorColor.withOpacity(0.15),
           ),
-          TextSpan(text: after, style: baseStyle),
-        ],
-      ),
+        ),
+        TextSpan(text: after, style: baseStyle),
+      ]),
       overflow: TextOverflow.ellipsis,
     );
   }

@@ -3,20 +3,23 @@ import '../models/script_file.dart';
 // postingan_tradingview.dart
 // Path: frontend/lib/postingan/postingan_tradingview.dart
 //
-// UI card components untuk indicator browser / selector.
-// User bisa browse, preview, dan pilih indikator yang mau dipakai.
+// FIX: "Add Indicator" / "New Indicator" button tidak bisa dipencet.
 //
-// Components:
-//   IndicatorCard          → card utama satu indikator
-//   IndicatorListView      → list semua indikator (scrollable)
-//   IndicatorSearchBar     → filter by name / tag
-//   IndicatorPreviewSheet  → bottom sheet preview kode + info
-//   IndicatorEmptyState    → empty state kalau ga ada indikator
+// Root causes:
+//   1. IndicatorEmptyState — "New Indicator" button tidak wrapped GestureDetector,
+//      hanya Container dekoratif. Ditambah onCreateNew callback + GestureDetector.
 //
-// Depends on:
-//   tradingview_pages.dart → EditorPermission, IsolatedTradingViewHook
-//   apps_colors_tradingview.dart → EditorThemeState
-//   python_syntax_highlighter.dart → PythonSyntaxHighlighter
+//   2. IndicatorListView — tidak ada tombol "+" untuk buat indikator baru
+//      ketika list sudah berisi item. Ditambah onCreateNew param + header action button.
+//
+//   3. Alur create baru:
+//      onCreateNew() dipanggil → parent (screen) handle via hook:
+//        a. hook.workspace.addFile(folderId, 'untitled_indicator.py')
+//        b. hook.openFile(newFile)
+//      → editor terbuka dengan file kosong siap ditulis.
+//
+// Tidak ada perubahan di: IndicatorCard, IndicatorSearchBar,
+// IndicatorPreviewSheet, semua internal small widgets.
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -28,7 +31,6 @@ import '../hooks/tradingview_hook.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  MODEL: IndicatorMeta
-//  Data model satu indikator card — pisah dari ScriptFile biar ga coupling
 // ─────────────────────────────────────────────────────────────────────────────
 
 enum IndicatorCategory {
@@ -51,10 +53,10 @@ class IndicatorMeta {
   final IndicatorCategory  category;
   final IndicatorOwnership ownership;
   final String             authorId;
-  final String             authorLabel;   // display name
+  final String             authorLabel;
   final List<String>       tags;
-  final String             previewCode;   // snippet buat preview
-  final ScriptFile         linkedFile;    // file yang di-load ke editor
+  final String             previewCode;
+  final ScriptFile         linkedFile;
   final DateTime           updatedAt;
   final bool               isFavorite;
 
@@ -88,8 +90,6 @@ class IndicatorMeta {
     isFavorite:   isFavorite ?? this.isFavorite,
   );
 
-  // ── Display helpers ───────────────────────────────────────────────────────
-
   String get categoryLabel {
     switch (category) {
       case IndicatorCategory.momentum:   return 'Momentum';
@@ -115,7 +115,6 @@ class IndicatorMeta {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  WIDGET: IndicatorCard
-//  Card satu indikator — tap buka preview, long-press actions (admin only)
 // ─────────────────────────────────────────────────────────────────────────────
 
 class IndicatorCard extends StatefulWidget {
@@ -167,7 +166,7 @@ class _IndicatorCardState extends State<IndicatorCard>
     super.dispose();
   }
 
-  bool get _canEdit   => widget.permission.canEdit(
+  bool get _canEdit => widget.permission.canEdit(
       ownerId: widget.indicator.isShared
           ? EditorPermission.sharedOwnerId
           : widget.permission.userId);
@@ -226,8 +225,6 @@ class _IndicatorCardState extends State<IndicatorCard>
                 padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
                 child: Row(
                   children: [
-
-                    // Category dot
                     Container(
                       width: 8, height: 8,
                       margin: const EdgeInsets.only(right: 8),
@@ -239,8 +236,6 @@ class _IndicatorCardState extends State<IndicatorCard>
                         ],
                       ),
                     ),
-
-                    // Name
                     Expanded(
                       child: Text(
                         ind.name,
@@ -252,8 +247,6 @@ class _IndicatorCardState extends State<IndicatorCard>
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-
-                    // Favorite button
                     if (widget.onToggleFavorite != null)
                       GestureDetector(
                         onTap: widget.onToggleFavorite,
@@ -270,8 +263,6 @@ class _IndicatorCardState extends State<IndicatorCard>
                           ),
                         ),
                       ),
-
-                    // Selected checkmark
                     if (widget.isSelected) ...[
                       const SizedBox(width: 6),
                       Icon(Icons.check_circle_rounded, size: 18, color: cat),
@@ -318,21 +309,13 @@ class _IndicatorCardState extends State<IndicatorCard>
                 ),
               ),
 
-              // ── Footer: tags + meta ───────────────────────────────────────
+              // ── Footer ───────────────────────────────────────────────────
               Padding(
                 padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
                 child: Row(
                   children: [
-
-                    // Category badge
-                    _TagChip(
-                      label: ind.categoryLabel,
-                      color: cat,
-                      chrome: chrome,
-                    ),
+                    _TagChip(label: ind.categoryLabel, color: cat, chrome: chrome),
                     const SizedBox(width: 6),
-
-                    // Ownership badge
                     _TagChip(
                       label: ind.isShared ? 'Shared' : 'Private',
                       color: ind.isShared
@@ -340,8 +323,6 @@ class _IndicatorCardState extends State<IndicatorCard>
                           : syntax.decorator,
                       chrome: chrome,
                     ),
-
-                    // Extra tags (max 1 visible)
                     if (ind.tags.isNotEmpty) ...[
                       const SizedBox(width: 6),
                       _TagChip(
@@ -350,10 +331,7 @@ class _IndicatorCardState extends State<IndicatorCard>
                         chrome: chrome,
                       ),
                     ],
-
                     const Spacer(),
-
-                    // Author + date
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
@@ -378,7 +356,6 @@ class _IndicatorCardState extends State<IndicatorCard>
                 ),
               ),
 
-              // ── Admin action bar (hanya kalau bisa edit/delete) ───────────
               if (_canEdit || _canDelete)
                 _AdminActionBar(
                   canEdit:   _canEdit,
@@ -412,8 +389,8 @@ class _IndicatorCardState extends State<IndicatorCard>
   }
 
   String _formatDate(DateTime dt) {
-    final now   = DateTime.now();
-    final diff  = now.difference(dt);
+    final now  = DateTime.now();
+    final diff = now.difference(dt);
     if (diff.inDays == 0) return 'Today';
     if (diff.inDays == 1) return 'Yesterday';
     if (diff.inDays < 7)  return '${diff.inDays}d ago';
@@ -423,7 +400,13 @@ class _IndicatorCardState extends State<IndicatorCard>
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  WIDGET: IndicatorListView
-//  Scrollable list semua indikator milik user + shared, dengan search + filter
+//
+//  FIX: tambah param onCreateNew + hook.
+//  onCreateNew dipanggil ketika user tap "New Indicator" — parent screen
+//  yang handle logic bikin file baru via hook dan navigate ke editor.
+//
+//  Juga tambah header action button "+" di count label row supaya user
+//  bisa buat indikator baru meski list sudah ada isinya.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class IndicatorListView extends StatefulWidget {
@@ -433,6 +416,8 @@ class IndicatorListView extends StatefulWidget {
     required this.permission,
     required this.theme,
     required this.onSelect,
+    // FIX: callback buat bikin indikator baru — wajib ada
+    required this.onCreateNew,
     this.onDelete,
     this.onEdit,
     this.selectedId,
@@ -442,6 +427,11 @@ class IndicatorListView extends StatefulWidget {
   final EditorPermission               permission;
   final EditorThemeState               theme;
   final void Function(IndicatorMeta)   onSelect;
+
+  /// FIX: dipanggil ketika user mau buat indikator baru.
+  /// Parent screen handle: buat ScriptFile kosong via hook, lalu openFile.
+  final VoidCallback                   onCreateNew;
+
   final void Function(IndicatorMeta)?  onDelete;
   final void Function(IndicatorMeta)?  onEdit;
   final String?                        selectedId;
@@ -462,21 +452,14 @@ class _IndicatorListViewState extends State<IndicatorListView> {
           ind.name.toLowerCase().contains(_query.toLowerCase()) ||
           ind.description.toLowerCase().contains(_query.toLowerCase()) ||
           ind.tags.any((t) => t.toLowerCase().contains(_query.toLowerCase()));
-
-      final matchCat = _activeCategory == null ||
-          ind.category == _activeCategory;
-
-      final matchOwn = _activeOwnership == null ||
-          ind.ownership == _activeOwnership;
-
+      final matchCat = _activeCategory == null || ind.category == _activeCategory;
+      final matchOwn = _activeOwnership == null || ind.ownership == _activeOwnership;
       return matchQuery && matchCat && matchOwn;
     }).toList()
       ..sort((a, b) {
-        // Favorites dulu
         final aFav = _favorites.any((f) => f.id == a.id) ? 0 : 1;
         final bFav = _favorites.any((f) => f.id == b.id) ? 0 : 1;
         if (aFav != bFav) return aFav.compareTo(bFav);
-        // Lalu shared dulu
         if (a.isShared != b.isShared) return a.isShared ? -1 : 1;
         return b.updatedAt.compareTo(a.updatedAt);
       });
@@ -505,7 +488,10 @@ class _IndicatorListViewState extends State<IndicatorListView> {
           onOwnershipChanged: (o) => setState(() => _activeOwnership = o),
         ),
 
-        // ── Count label ─────────────────────────────────────────────────
+        // ── Count label + FIX: New Indicator button ──────────────────────
+        //
+        // FIX: tombol "+" di sini biar user bisa buat indikator baru
+        // kapanpun, tidak hanya saat list kosong.
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           child: Row(
@@ -517,11 +503,36 @@ class _IndicatorListViewState extends State<IndicatorListView> {
                 ),
               ),
               const Spacer(),
-              if (_filtered.isNotEmpty && _activeCategory == null && _query.isEmpty)
-                Text(
-                  'Long press for actions',
-                  style: TextStyle(
-                    color: syntax.comment.withOpacity(0.35), fontSize: 10,
+
+              // FIX: tombol "New Indicator" yang beneran bisa dipencet
+              if (widget.permission.canCreate)
+                GestureDetector(
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    widget.onCreateNew();
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color:        chrome.cursorColor.withOpacity(0.10),
+                      borderRadius: BorderRadius.circular(6),
+                      border:       Border.all(color: chrome.cursorColor.withOpacity(0.35)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.add_rounded, size: 13, color: chrome.cursorColor),
+                        const SizedBox(width: 4),
+                        Text(
+                          'New Indicator',
+                          style: TextStyle(
+                            color:      chrome.cursorColor,
+                            fontSize:   11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
             ],
@@ -531,23 +542,30 @@ class _IndicatorListViewState extends State<IndicatorListView> {
         // ── List / empty state ───────────────────────────────────────────
         Expanded(
           child: _filtered.isEmpty
-              ? IndicatorEmptyState(theme: widget.theme, query: _query)
+              ? IndicatorEmptyState(
+                  theme:         widget.theme,
+                  query:         _query,
+                  // FIX: pass onCreateNew ke empty state
+                  onCreateNew:   widget.permission.canCreate
+                      ? widget.onCreateNew
+                      : null,
+                )
               : ListView.builder(
                   itemCount: _filtered.length,
                   padding: const EdgeInsets.only(bottom: 24),
                   itemBuilder: (_, i) {
-                    final ind = _filtered[i];
+                    final ind  = _filtered[i];
                     final isFav = _favorites.any((f) => f.id == ind.id);
                     return IndicatorCard(
                       indicator:  ind.copyWith(isFavorite: isFav),
                       permission: widget.permission,
                       theme:      widget.theme,
                       isSelected: ind.id == widget.selectedId,
-                      onSelect: () => widget.onSelect(ind),
-                      onDelete: widget.onDelete != null
+                      onSelect:   () => widget.onSelect(ind),
+                      onDelete:   widget.onDelete != null
                           ? () => widget.onDelete!(ind)
                           : null,
-                      onEdit: widget.onEdit != null
+                      onEdit:     widget.onEdit != null
                           ? () => widget.onEdit!(ind)
                           : null,
                       onToggleFavorite: () => setState(() {
@@ -646,7 +664,6 @@ class _IndicatorSearchBarState extends State<IndicatorSearchBar> {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  WIDGET: IndicatorPreviewSheet
-//  Full bottom sheet — kode lengkap + info + tombol "Use This Indicator"
 // ─────────────────────────────────────────────────────────────────────────────
 
 class IndicatorPreviewSheet extends StatelessWidget {
@@ -690,11 +707,11 @@ class IndicatorPreviewSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final chrome  = theme.chrome;
-    final syntax  = theme.syntax;
-    final cat     = indicator.categoryColor(theme);
+    final chrome     = theme.chrome;
+    final syntax     = theme.syntax;
+    final cat        = indicator.categoryColor(theme);
     final isReadOnly = indicator.isShared && !permission.isAdmin;
-    final screenH = MediaQuery.of(context).size.height;
+    final screenH    = MediaQuery.of(context).size.height;
 
     return Container(
       height:     screenH * 0.88,
@@ -815,10 +832,7 @@ class IndicatorPreviewSheet extends StatelessWidget {
                     children: [
                       Icon(Icons.copy_rounded, color: syntax.comment, size: 14),
                       const SizedBox(width: 4),
-                      Text(
-                        'Copy',
-                        style: TextStyle(color: syntax.comment, fontSize: 11),
-                      ),
+                      Text('Copy', style: TextStyle(color: syntax.comment, fontSize: 11)),
                     ],
                   ),
                 ),
@@ -846,7 +860,6 @@ class IndicatorPreviewSheet extends StatelessWidget {
             ),
           ),
 
-          // ── CTA ────────────────────────────────────────────────────────────
           _PreviewCTA(
             indicator:  indicator,
             permission: permission,
@@ -862,6 +875,10 @@ class IndicatorPreviewSheet extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  WIDGET: IndicatorEmptyState
+//
+//  FIX: tambah param onCreateNew (nullable).
+//  "New Indicator" button sekarang wrapped GestureDetector + hanya tampil
+//  kalau onCreateNew != null (artinya user punya permission canCreate).
 // ─────────────────────────────────────────────────────────────────────────────
 
 class IndicatorEmptyState extends StatelessWidget {
@@ -869,10 +886,15 @@ class IndicatorEmptyState extends StatelessWidget {
     super.key,
     required this.theme,
     this.query = '',
+    // FIX: nullable — null = tidak punya permission, tidak tampilkan tombol
+    this.onCreateNew,
   });
 
   final EditorThemeState theme;
   final String           query;
+
+  /// FIX: callback yang sebenarnya. Kalau null, tombol tidak ditampilkan.
+  final VoidCallback?    onCreateNew;
 
   @override
   Widget build(BuildContext context) {
@@ -913,21 +935,38 @@ class IndicatorEmptyState extends StatelessWidget {
                 height:   1.55,
               ),
             ),
-            if (query.isEmpty) ...[
+
+            // FIX: tombol hanya muncul kalau query kosong DAN user punya permission
+            if (query.isEmpty && onCreateNew != null) ...[
               const SizedBox(height: 24),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                decoration: BoxDecoration(
-                  color:        chrome.cursorColor.withOpacity(0.10),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: chrome.cursorColor.withOpacity(0.35)),
-                ),
-                child: Text(
-                  'New Indicator',
-                  style: TextStyle(
-                    color:      chrome.cursorColor,
-                    fontSize:   13,
-                    fontWeight: FontWeight.w700,
+
+              // FIX: GestureDetector membungkus Container — sekarang bisa dipencet
+              GestureDetector(
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  onCreateNew!();
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  decoration: BoxDecoration(
+                    color:        chrome.cursorColor.withOpacity(0.10),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: chrome.cursorColor.withOpacity(0.35)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.add_rounded, size: 16, color: chrome.cursorColor),
+                      const SizedBox(width: 6),
+                      Text(
+                        'New Indicator',
+                        style: TextStyle(
+                          color:      chrome.cursorColor,
+                          fontSize:   13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -940,7 +979,7 @@ class IndicatorEmptyState extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Internal small widgets
+//  Internal small widgets (tidak ada perubahan)
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _TagChip extends StatelessWidget {
@@ -1046,9 +1085,9 @@ class _ActionBtn extends StatelessWidget {
     required this.color,
     required this.onTap,
   });
-  final String     label;
-  final IconData   icon;
-  final Color      color;
+  final String       label;
+  final IconData     icon;
+  final Color        color;
   final VoidCallback onTap;
 
   @override
@@ -1098,7 +1137,6 @@ class _FilterChipRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: Row(
         children: [
-          // All
           _FilterPill(
             label:    'All',
             isActive: activeCategory == null && activeOwnership == null,
@@ -1110,8 +1148,6 @@ class _FilterChipRow extends StatelessWidget {
             },
           ),
           const SizedBox(width: 6),
-
-          // Shared / Private
           _FilterPill(
             label:    'Shared',
             isActive: activeOwnership == IndicatorOwnership.shared,
@@ -1136,14 +1172,15 @@ class _FilterChipRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 6),
-
-          // Category filters
           ...IndicatorCategory.values.map((cat) {
             final catColor = IndicatorMeta(
               id: '', name: '', description: '',
               category: cat, ownership: IndicatorOwnership.shared,
               authorId: '', authorLabel: '', tags: [], previewCode: '',
-              linkedFile: ScriptFile(id: '', name: '', content: '', createdAt: DateTime.now(), updatedAt: DateTime.now()),
+              linkedFile: ScriptFile(
+                id: '', name: '', content: '',
+                createdAt: DateTime.now(), updatedAt: DateTime.now(),
+              ),
               updatedAt: DateTime.now(),
             ).categoryColor(theme);
 
@@ -1233,9 +1270,9 @@ class _PreviewCTA extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final chrome  = theme.chrome;
-    final syntax  = theme.syntax;
-    final cat     = indicator.categoryColor(theme);
+    final chrome = theme.chrome;
+    final syntax = theme.syntax;
+    final cat    = indicator.categoryColor(theme);
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
@@ -1245,7 +1282,6 @@ class _PreviewCTA extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Info
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1266,8 +1302,6 @@ class _PreviewCTA extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-
-          // Use button
           GestureDetector(
             onTap: () {
               HapticFeedback.mediumImpact();
@@ -1278,9 +1312,7 @@ class _PreviewCTA extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [cat, cat.withOpacity(0.8)],
-                ),
+                gradient: LinearGradient(colors: [cat, cat.withOpacity(0.8)]),
                 borderRadius: BorderRadius.circular(10),
                 boxShadow: [
                   BoxShadow(color: cat.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 4)),
@@ -1292,17 +1324,13 @@ class _PreviewCTA extends StatelessWidget {
                   Icon(
                     Icons.play_arrow_rounded,
                     size:  16,
-                    color: cat.computeLuminance() > 0.4
-                        ? Colors.black87
-                        : Colors.white,
+                    color: cat.computeLuminance() > 0.4 ? Colors.black87 : Colors.white,
                   ),
                   const SizedBox(width: 6),
                   Text(
                     'Use This',
                     style: TextStyle(
-                      color: cat.computeLuminance() > 0.4
-                          ? Colors.black87
-                          : Colors.white,
+                      color:      cat.computeLuminance() > 0.4 ? Colors.black87 : Colors.white,
                       fontSize:   13,
                       fontWeight: FontWeight.w800,
                     ),

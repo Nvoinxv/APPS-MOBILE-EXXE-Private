@@ -2,16 +2,9 @@
 // folder_tree_tile.dart
 // Path: frontend/lib/trading_screen/tradingview/components/folder_tree_tile.dart
 //
-// Widget: collapsible folder tile dengan nested subfolders & files.
-// Permission-aware: shared folder tampil dengan badge + restricted actions.
-//
-// Fitur:
-//   • Expand/collapse dengan animasi
-//   • Indentation berdasarkan depth
-//   • Inline rename via double-tap
-//   • Folder context menu (new file, new folder, rename, delete)
-//   • Shared folder: icon + lock badge, disabled destructive actions buat exclusive
-//   • Search mode: auto-expand folder yang ada hasil
+// FIX BATCH 4: Tambah `onHoverFolder` & `onHoverFile` optional params untuk
+//   path detection. MouseRegion di folder row & FileTile children memanggil
+//   callback ini saat hover → _ActivePathBar di FileExplorerPanel update path.
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -35,12 +28,16 @@ class FolderTreeTile extends StatefulWidget {
   final EditorChromeColors      chrome;
   final EditorSyntaxColors      syntax;
   final String                  searchQuery;
-  final void Function(ScriptFile)                             onOpenFile;
+  final void Function(ScriptFile)                               onOpenFile;
   final Future<void> Function(BuildContext, Offset, ScriptFile) onContextMenu;
-  final Future<void> Function(String)                         onNewFile;
-  final Future<void> Function(String?)                        onNewFolder;
-  final bool Function(ScriptFile)                             matchesSearch;
-  final bool Function(ScriptFolder)                           folderHasMatch;
+  final Future<void> Function(String)                           onNewFile;
+  final Future<void> Function(String?)                          onNewFolder;
+  final bool Function(ScriptFile)                               matchesSearch;
+  final bool Function(ScriptFolder)                             folderHasMatch;
+
+  // ── NEW BATCH 4: Path hover callbacks (optional — aman kalau null) ─────────
+  final void Function(ScriptFolder?)? onHoverFolder;
+  final void Function(ScriptFile?)?   onHoverFile;
 
   const FolderTreeTile({
     super.key,
@@ -58,6 +55,9 @@ class FolderTreeTile extends StatefulWidget {
     required this.onNewFolder,
     required this.matchesSearch,
     required this.folderHasMatch,
+    // optional — default null supaya backward-compatible
+    this.onHoverFolder,
+    this.onHoverFile,
   });
 
   @override
@@ -79,10 +79,8 @@ class _FolderTreeTileState extends State<FolderTreeTile>
   bool get isExpanded      => folder.isExpanded;
   bool get isSearching     => widget.searchQuery.isNotEmpty;
   bool get isShared        => widget.isShared;
-  bool get canModifyFolder =>
-      widget.perm.isAdmin || !isShared;
+  bool get canModifyFolder => widget.perm.isAdmin || !isShared;
 
-  // ── Indentation ───────────────────────────────────────────────────────────
   double get _indent => widget.depth * 12.0 + 8.0;
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -109,7 +107,6 @@ class _FolderTreeTileState extends State<FolderTreeTile>
   @override
   void didUpdateWidget(FolderTreeTile old) {
     super.didUpdateWidget(old);
-    // Auto-expand saat search ada hasil
     if (isSearching && widget.folderHasMatch(folder) && !folder.isExpanded) {
       _expandCtrl.forward();
     }
@@ -160,16 +157,16 @@ class _FolderTreeTileState extends State<FolderTreeTile>
 
   Future<void> _showFolderContextMenu(BuildContext ctx, Offset pos) async {
     final action = await showFolderContextMenu(
-      context:      ctx,
-      position:     pos,
-      chrome:       widget.chrome,
-      syntax:       widget.syntax,
-      folder:       folder,
-      canCreate:    widget.perm.canCreate,
-      canRename:    canModifyFolder,
-      canDelete:    canModifyFolder && folder.parentId != null,
-      isAdmin:      widget.perm.isAdmin,
-      isShared:     isShared,
+      context:   ctx,
+      position:  pos,
+      chrome:    widget.chrome,
+      syntax:    widget.syntax,
+      folder:    folder,
+      canCreate: widget.perm.canCreate,
+      canRename: canModifyFolder,
+      canDelete: canModifyFolder && folder.parentId != null,
+      isAdmin:   widget.perm.isAdmin,
+      isShared:  isShared,
     );
 
     if (action == null || !mounted) return;
@@ -183,7 +180,36 @@ class _FolderTreeTileState extends State<FolderTreeTile>
         _startRename();
       case FolderContextAction.delete:
         await _confirmDeleteFolder();
+      case FolderContextAction.copyPath:
+        await _copyFolderPath();
     }
+  }
+
+  Future<void> _copyFolderPath() async {
+    final path = widget.hook.workspace.getFolderPath(folder.id);
+    if (path.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: path));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(children: [
+          Icon(Icons.check_circle_outline_rounded, size: 13,
+              color: widget.chrome.consoleTextSuccess),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              'Path copied: $path',
+              style: TextStyle(color: widget.chrome.consoleTextSuccess, fontSize: 11),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ]),
+        backgroundColor: widget.chrome.surface,
+        behavior:  SnackBarBehavior.floating,
+        shape:     RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        duration:  const Duration(seconds: 2),
+      ),
+    );
   }
 
   Future<void> _confirmDeleteFolder() async {
@@ -203,7 +229,7 @@ class _FolderTreeTileState extends State<FolderTreeTile>
         content: Text(
           'Delete "${folder.name}" and all its contents?\nThis cannot be undone.',
           style: TextStyle(
-            color:  widget.syntax.comment,
+            color:    widget.syntax.comment,
             fontSize: 13,
             height:   1.5,
           ),
@@ -211,13 +237,11 @@ class _FolderTreeTileState extends State<FolderTreeTile>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text('Cancel',
-                style: TextStyle(color: widget.syntax.comment)),
+            child: Text('Cancel', style: TextStyle(color: widget.syntax.comment)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text('Delete',
-                style: TextStyle(color: widget.chrome.consoleTextError)),
+            child: Text('Delete', style: TextStyle(color: widget.chrome.consoleTextError)),
           ),
         ],
       ),
@@ -236,7 +260,6 @@ class _FolderTreeTileState extends State<FolderTreeTile>
     final chrome = widget.chrome;
     final syntax = widget.syntax;
 
-    // Count filtered files for search badge
     final filteredFiles = isSearching
         ? folder.files.where(widget.matchesSearch).toList()
         : folder.files;
@@ -251,14 +274,21 @@ class _FolderTreeTileState extends State<FolderTreeTile>
       children: [
         // ── Folder row ─────────────────────────────────────────────────────
         GestureDetector(
-          onTap:         _toggle,
-          onDoubleTap:   _startRename,
+          onTap:       _toggle,
+          onDoubleTap: _startRename,
           onSecondaryTapUp: (details) =>
               _showFolderContextMenu(context, details.globalPosition),
           child: MouseRegion(
             cursor:  SystemMouseCursors.click,
-            onEnter: (_) => setState(() => _isHovered = true),
-            onExit:  (_) => setState(() => _isHovered = false),
+            // FIX BATCH 4: fire hover callbacks untuk path detection
+            onEnter: (_) {
+              setState(() => _isHovered = true);
+              widget.onHoverFolder?.call(folder);
+            },
+            onExit: (_) {
+              setState(() => _isHovered = false);
+              widget.onHoverFolder?.call(null);
+            },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 100),
               height:   28,
@@ -329,10 +359,7 @@ class _FolderTreeTileState extends State<FolderTreeTile>
                   // Search match count badge
                   if (isSearching && widget.folderHasMatch(folder)) ...[
                     const SizedBox(width: 4),
-                    _CountBadge(
-                      count:  filteredFiles.length,
-                      chrome: chrome,
-                    ),
+                    _CountBadge(count: filteredFiles.length, chrome: chrome),
                   ],
 
                   // Action buttons (visible on hover)
@@ -368,37 +395,41 @@ class _FolderTreeTileState extends State<FolderTreeTile>
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Files
+              // Files — teruskan onHoverFile ke setiap FileTile
               ...filteredFiles.map((file) => FileTile(
-                file:         file,
-                depth:        widget.depth + 1,
-                isActive:     widget.hook.tabs.activeFile?.id == file.id,
-                isShared:     isShared,
-                perm:         widget.perm,
-                chrome:       chrome,
-                syntax:       syntax,
-                onTap:        () => widget.onOpenFile(file),
-                onContextMenu: (pos) =>
-                    widget.onContextMenu(context, pos, file),
-                searchQuery:  widget.searchQuery,
-              )),
-
-              // Subfolders (recursive)
-              ...filteredSubs.map((sub) => FolderTreeTile(
-                folder:        sub,
+                file:          file,
                 depth:         widget.depth + 1,
+                isActive:      widget.hook.tabs.activeFile?.id == file.id,
                 isShared:      isShared,
                 perm:          widget.perm,
-                hook:          widget.hook,
                 chrome:        chrome,
                 syntax:        syntax,
+                onTap:         () => widget.onOpenFile(file),
+                onContextMenu: (pos) => widget.onContextMenu(context, pos, file),
                 searchQuery:   widget.searchQuery,
-                onOpenFile:    widget.onOpenFile,
-                onContextMenu: widget.onContextMenu,
-                onNewFile:     widget.onNewFile,
-                onNewFolder:   widget.onNewFolder,
-                matchesSearch: widget.matchesSearch,
+                // FIX BATCH 4: teruskan hover callback
+                onHoverFile:   widget.onHoverFile,
+              )),
+
+              // Subfolders (recursive) — teruskan kedua callbacks
+              ...filteredSubs.map((sub) => FolderTreeTile(
+                folder:         sub,
+                depth:          widget.depth + 1,
+                isShared:       isShared,
+                perm:           widget.perm,
+                hook:           widget.hook,
+                chrome:         chrome,
+                syntax:         syntax,
+                searchQuery:    widget.searchQuery,
+                onOpenFile:     widget.onOpenFile,
+                onContextMenu:  widget.onContextMenu,
+                onNewFile:      widget.onNewFile,
+                onNewFolder:    widget.onNewFolder,
+                matchesSearch:  widget.matchesSearch,
                 folderHasMatch: widget.folderHasMatch,
+                // FIX BATCH 4: propagate ke nested tiles
+                onHoverFolder:  widget.onHoverFolder,
+                onHoverFile:    widget.onHoverFile,
               )),
 
               // Empty folder hint
@@ -422,7 +453,7 @@ class _FolderTreeTileState extends State<FolderTreeTile>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Small folder action button (hover)
+//  _FolderActionBtn
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _FolderActionBtn extends StatefulWidget {
@@ -490,9 +521,9 @@ class _SharedBadge extends StatelessWidget {
     child: Text(
       'shared',
       style: TextStyle(
-        color:      chrome.consoleTextInfo.withOpacity(0.8),
-        fontSize:   8,
-        fontWeight: FontWeight.w700,
+        color:         chrome.consoleTextInfo.withOpacity(0.8),
+        fontSize:      8,
+        fontWeight:    FontWeight.w700,
         letterSpacing: 0.8,
       ),
     ),
@@ -506,7 +537,7 @@ class _CountBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding:      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
     decoration: BoxDecoration(
       color:        chrome.cursorColor.withOpacity(0.15),
       borderRadius: BorderRadius.circular(8),
@@ -514,8 +545,8 @@ class _CountBadge extends StatelessWidget {
     child: Text(
       '$count',
       style: TextStyle(
-        color:    chrome.cursorColor,
-        fontSize: 9,
+        color:      chrome.cursorColor,
+        fontSize:   9,
         fontWeight: FontWeight.w700,
       ),
     ),
@@ -526,7 +557,7 @@ class _CountBadge extends StatelessWidget {
 //  Folder context menu helper
 // ─────────────────────────────────────────────────────────────────────────────
 
-enum FolderContextAction { newFile, newFolder, rename, delete }
+enum FolderContextAction { newFile, newFolder, rename, delete, copyPath }
 
 Future<FolderContextAction?> showFolderContextMenu({
   required BuildContext        context,
@@ -544,17 +575,17 @@ Future<FolderContextAction?> showFolderContextMenu({
       Overlay.of(context).context.findRenderObject()! as RenderBox;
 
   return showMenu<FolderContextAction>(
-    context:     context,
-    position:    RelativeRect.fromRect(
+    context:  context,
+    position: RelativeRect.fromRect(
       position & const Size(1, 1),
       Offset.zero & overlay.size,
     ),
-    color:       chrome.surface,
-    shape:       RoundedRectangleBorder(
+    color:    chrome.surface,
+    shape:    RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(8),
       side:         BorderSide(color: chrome.gutterBorder),
     ),
-    elevation:   8,
+    elevation: 8,
     items: [
       if (canCreate) ...[
         PopupMenuItem(
@@ -567,7 +598,7 @@ Future<FolderContextAction?> showFolderContextMenu({
           height: 36,
           child: _MenuRow(icon: Icons.create_new_folder_outlined, label: 'New Folder', syntax: syntax),
         ),
-        PopupMenuDivider(height: 1),
+        const PopupMenuDivider(height: 1),
       ],
       if (canRename)
         PopupMenuItem(
@@ -580,23 +611,28 @@ Future<FolderContextAction?> showFolderContextMenu({
           value: FolderContextAction.delete,
           height: 36,
           child: _MenuRow(
-            icon:  Icons.delete_outline_rounded,
-            label: 'Delete',
-            syntax: syntax,
+            icon:          Icons.delete_outline_rounded,
+            label:         'Delete',
+            syntax:        syntax,
             isDestructive: true,
-            chrome: chrome,
+            chrome:        chrome,
           ),
         ),
+      const PopupMenuDivider(height: 1),
+      PopupMenuItem(
+        value: FolderContextAction.copyPath,
+        height: 36,
+        child: _MenuRow(icon: Icons.content_copy_rounded, label: 'Copy Path', syntax: syntax),
+      ),
     ],
   );
 }
 
-// Reusable menu row widget
 class _MenuRow extends StatelessWidget {
-  final IconData           icon;
-  final String             label;
-  final EditorSyntaxColors syntax;
-  final bool               isDestructive;
+  final IconData            icon;
+  final String              label;
+  final EditorSyntaxColors  syntax;
+  final bool                isDestructive;
   final EditorChromeColors? chrome;
 
   const _MenuRow({

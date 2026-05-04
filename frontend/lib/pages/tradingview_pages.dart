@@ -57,8 +57,6 @@ class EditorPermission {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  SECTION 2 — IsolatedWorkspaceState
-//  FIX: simpan _roots lokal, jangan pass ke super(initial:...)
-//       expose `roots` getter sendiri
 // ─────────────────────────────────────────────────────────────────────────────
 
 class IsolatedWorkspaceState extends WorkspaceState {
@@ -69,7 +67,6 @@ class IsolatedWorkspaceState extends WorkspaceState {
     _roots = _buildIsolatedWorkspace(permission);
   }
 
-  // ── FIX: expose roots getter ──────────────────────────────────────────────
   List<ScriptFolder> get roots => _roots;
 
   // ── Build initial workspace ───────────────────────────────────────────────
@@ -157,7 +154,8 @@ class IsolatedWorkspaceState extends WorkspaceState {
 
   // ── Guarded CRUD ──────────────────────────────────────────────────────────
 
-  ScriptFile? addFileGuarded(String parentFolderId, String name) {
+  // FIX: addFileGuarded is now async to match the async addFile() in WorkspaceState.
+  Future<ScriptFile?> addFileGuarded(String parentFolderId, String name) async {
     if (parentFolderId.contains(EditorPermission.sharedOwnerId) &&
         !permission.isAdmin) return null;
     return addFile(parentFolderId, name);
@@ -171,19 +169,21 @@ class IsolatedWorkspaceState extends WorkspaceState {
     return true;
   }
 
-  bool deleteFileGuarded(String fileId) {
+  // FIX: deleteFileGuarded is now async to match the async deleteFile() in WorkspaceState.
+  Future<bool> deleteFileGuarded(String fileId) async {
     final file = findFile(fileId);
     if (file == null) return false;
     if (!permission.canDelete(ownerId: resolveOwnerId(file))) return false;
-    deleteFile(fileId);
+    await deleteFile(fileId);
     return true;
   }
 
-  bool renameFileGuarded(String fileId, String newName) {
+  // FIX: renameFileGuarded is now async to match the async renameFile() in WorkspaceState.
+  Future<bool> renameFileGuarded(String fileId, String newName) async {
     final file = findFile(fileId);
     if (file == null) return false;
     if (!permission.canRename(ownerId: resolveOwnerId(file))) return false;
-    renameFile(fileId, newName);
+    await renameFile(fileId, newName);
     return true;
   }
 
@@ -311,15 +311,15 @@ class IsolatedTradingViewHook {
     tabs.updateActiveContent(content);
   }
 
-  void saveActiveFile() {
+  Future<void> saveActiveFile() async {
     final active = tabs.activeFile;
     if (active == null) return;
-    workspace.saveFile(active.id);
+    await workspace.saveFile(active.id);
     tabs.markSaved(active.id);
   }
 
-  void deleteFile(String fileId) {
-    final success = workspace.deleteFileGuarded(fileId);
+  Future<void> deleteFile(String fileId) async {
+    final success = await workspace.deleteFileGuarded(fileId);
     if (success) tabs.closeTab(fileId);
   }
 
@@ -706,7 +706,6 @@ class _EditorReadyState extends StatelessWidget {
     final activeFile = hook.tabs.activeFile;
     final theme      = hook.editorTheme.theme;
 
-    // ── No file open → empty state ─────────────────────────────────────────
     if (activeFile == null) {
       return Container(
         color: chrome.background,
@@ -733,16 +732,12 @@ class _EditorReadyState extends StatelessWidget {
       );
     }
 
-    // ── Active file: read-only view (PythonCodeView) ───────────────────────
-    // TODO: ganti PythonCodeView dengan editable TextField ketika
-    //       code_editor_widget.dart selesai; untuk sekarang read-only dulu.
     final canEdit    = hook.canEditActive;
     final isReadOnly = !canEdit;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Read-only notice bar
         if (isReadOnly)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -762,8 +757,6 @@ class _EditorReadyState extends StatelessWidget {
               ],
             ),
           ),
-
-        // ── Code view ──────────────────────────────────────────────────────
         Expanded(
           child: _EditableOrReadOnly(
             file:     activeFile,
@@ -779,8 +772,6 @@ class _EditorReadyState extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  _EditableOrReadOnly
-//  canEdit  → editable TextField dengan syntax highlight overlay (basic)
-//  !canEdit → PythonCodeView read-only
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _EditableOrReadOnly extends StatefulWidget {
@@ -812,7 +803,6 @@ class _EditableOrReadOnlyState extends State<_EditableOrReadOnly> {
   @override
   void didUpdateWidget(_EditableOrReadOnly old) {
     super.didUpdateWidget(old);
-    // File switched → update controller content
     if (old.file.id != widget.file.id) {
       _ctrl.text = widget.file.content;
     }
@@ -830,7 +820,6 @@ class _EditableOrReadOnlyState extends State<_EditableOrReadOnly> {
     final typo   = widget.theme.typography;
 
     if (!widget.canEdit) {
-      // ── Read-only: PythonCodeView ────────────────────────────────────────
       return PythonCodeView(
         source:          widget.file.content,
         theme:           widget.theme,
@@ -838,8 +827,6 @@ class _EditableOrReadOnlyState extends State<_EditableOrReadOnly> {
       );
     }
 
-    // ── Editable: raw TextField with monospace styling ────────────────────
-    // Overlay highlight (PythonCodeView) can be layered here later via Stack.
     return Container(
       color: chrome.background,
       child: Padding(
@@ -847,10 +834,7 @@ class _EditableOrReadOnlyState extends State<_EditableOrReadOnly> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Gutter — line numbers synced to controller
             _LiveLineGutter(controller: _ctrl, theme: widget.theme),
-
-            // Editor field
             Expanded(
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
@@ -862,9 +846,9 @@ class _EditableOrReadOnlyState extends State<_EditableOrReadOnly> {
                     keyboardType:   TextInputType.multiline,
                     style: typo.baseStyle.copyWith(color: widget.theme.syntax.plain),
                     cursorColor:    chrome.cursorColor,
-                    decoration: InputDecoration(
+                    decoration: const InputDecoration(
                       border:          InputBorder.none,
-                      contentPadding:  const EdgeInsets.symmetric(
+                      contentPadding:  EdgeInsets.symmetric(
                           horizontal: 12, vertical: 12),
                       isDense:         true,
                     ),
@@ -881,7 +865,7 @@ class _EditableOrReadOnlyState extends State<_EditableOrReadOnly> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  _LiveLineGutter — line count synced to TextEditingController
+//  _LiveLineGutter
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _LiveLineGutter extends StatefulWidget {
