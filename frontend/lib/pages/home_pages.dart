@@ -484,16 +484,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
-        PopupMenuItem(
-          value: 'settings',
-          child: Row(
-            children: [
-              Icon(Icons.settings_outlined, color: Colors.white.withOpacity(0.7), size: 18),
-              const SizedBox(width: 12),
-              Text('Settings', style: TextStyle(color: Colors.white.withOpacity(0.9))),
-            ],
-          ),
-        ),
         const PopupMenuDivider(),
         PopupMenuItem(
           value: 'logout',

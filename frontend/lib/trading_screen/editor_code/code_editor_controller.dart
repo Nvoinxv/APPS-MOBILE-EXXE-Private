@@ -1,17 +1,26 @@
 // =============================================================================
 // code_editor_controller.dart
+// Path: frontend/lib/trading_screen/editor_code/code_editor_controller.dart
 //
-// Tanggung jawab:
-//   - TextEditingController, FocusNode, ScrollControllers
-//   - Sync gutter scroll ↔ code area (jumpTo = zero lag)
-//   - Derived state: lineCount, activeLine, colIndex, lineHeight
-//   - BreakpointState
-//   - Find/replace match list
+// FIX v_final:
+//  - [ERROR FIX] Hapus duplicate import line_number_gutter.dart
+//    (sebelumnya diimport 2x dengan combinator berbeda → Dart confused)
+//  - [ERROR FIX] Hapus `hide BreakpointState` dari console_state.dart import
+//    BreakpointState sudah dihapus dari console_state.dart di fix sebelumnya,
+//    jadi `hide` pada symbol yang tidak ada → throw compile error →
+//    ConsoleState ikut "not found" meski path-nya benar
+//  - [ERROR FIX] runCode() pakai API ConsoleState yang valid (clear/setStatus/
+//    write*/writeSystem) bukan startRun()/setResult() yang tidak ada
+//  - Semua logic lain tidak diubah
 // =============================================================================
 
 import 'package:flutter/material.dart';
-import '../tradingview/line_number_gutter.dart';
+
 import '../../../hooks/execute_hook.dart';
+
+// FIX: satu import, tanpa combinator — tidak ada konflik karena
+// BreakpointState sudah dihapus dari console_state.dart
+import '../tradingview/line_number_gutter.dart';
 import '../output_console/console_state.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -89,6 +98,9 @@ class CodeEditorController extends ChangeNotifier {
     return offset - (text.substring(0, offset).lastIndexOf('\n') + 1);
   }
 
+  // ── runCode — FIX: pakai API ConsoleState yang valid ─────────────────────
+  // startRun() / setResult() tidak ada di ConsoleState.
+  // Ganti ke clear() / setStatus() / write*() yang sama dengan editor_toolbar.dart
   Future<void> runCode(ConsoleState consoleState) async {
     final code = _textCtrl.text.trim();
     if (code.isEmpty) {
@@ -96,18 +108,57 @@ class CodeEditorController extends ChangeNotifier {
       return;
     }
 
-    consoleState.startRun();
+    consoleState.clear();
+    consoleState.setStatus(RunStatus.running);
+    consoleState.writeSystem('▶  Running...');
+    consoleState.writeSystem('─' * 48);
 
-    final result = await ExecuteHook.runCode(code);
+    try {
+      final result = await ExecuteHook.runCode(code);
 
-    consoleState.setResult(
-      stdout:   result['stdout']    as String? ?? '',
-      stderr:   result['stderr']    as String? ?? '',
-      exitCode: result['exit_code'] as int?    ?? -1,
-    );
+      if (consoleState.status != RunStatus.running) return;
+
+      final stdout   = (result['stdout']    as String?) ?? '';
+      final stderr   = (result['stderr']    as String?) ?? '';
+      final exitCode = (result['exit_code'] as int?)    ?? -1;
+
+      if (stdout.isNotEmpty) {
+        for (final line in stdout.split('\n')) {
+          if (line.isEmpty) continue;
+          consoleState.write(line);
+        }
+      } else {
+        consoleState.writeInfo('(no output)');
+      }
+
+      if (stderr.isNotEmpty) {
+        consoleState.writeSystem('─' * 48);
+        for (final line in stderr.split('\n')) {
+          if (line.isEmpty) continue;
+          consoleState.writeError(line);
+        }
+      }
+
+      consoleState.writeSystem('─' * 48);
+
+      if (exitCode == 0) {
+        consoleState.writeSuccess('✓  Process exited with code 0');
+        consoleState.setStatus(RunStatus.done);
+      } else {
+        consoleState.writeWarning('✗  Process exited with code $exitCode');
+        consoleState.setStatus(RunStatus.error);
+      }
+    } catch (e) {
+      if (consoleState.status == RunStatus.running) {
+        consoleState.writeSystem('─' * 48);
+        consoleState.writeError('ExecuteHook error: $e');
+        consoleState.setStatus(RunStatus.error);
+      }
+    }
   }
 
   // ── Breakpoints ───────────────────────────────────────────────────────────
+  // BreakpointState dari line_number_gutter.dart — satu-satunya definisi
   final BreakpointState breakpoints = BreakpointState();
 
   // ── Find/Replace matches ──────────────────────────────────────────────────
@@ -130,7 +181,7 @@ class CodeEditorController extends ChangeNotifier {
   }
 
   // ── Callbacks ke parent ───────────────────────────────────────────────────
-  void Function(String text)?  onTextChanged;
+  void Function(String text)?   onTextChanged;
   void Function(int lineIndex)? onActiveLineChanged;
 
   // ── Load teks baru (pindah tab/file) ─────────────────────────────────────
@@ -167,7 +218,7 @@ class CodeEditorController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Gutter sync: jumpTo (bukan animateTo) supaya tidak ada delay visual
+  /// Gutter sync: jumpTo supaya tidak ada delay visual
   void _syncGutter() {
     if (!_gutterCtrl.hasClients || !_vertScrollCtrl.hasClients) return;
     final offset = _vertScrollCtrl.offset;

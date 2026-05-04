@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../candle/candle_normal.dart';
 import '../controller/risk_ratio_button.dart';
+import '../trading_screen/tradingviewcodeeditor_screen.dart';
 
 /// ChartControls - Bottom bar dengan popup Tools menu
 class ChartControls extends StatefulWidget {
@@ -19,9 +20,9 @@ class ChartControls extends StatefulWidget {
   final VoidCallback onToggleFibonacci;
   final VoidCallback onToggleRiskRatio;
   final VoidCallback onSwitchRiskRatioMode;
-  // HAPUS: onShowRiskRatioContextMenu — context menu sekarang via right-click di overlay
   final VoidCallback onSettings;
   final VoidCallback onReset;
+  final VoidCallback onOpenCodeEditor; // ← NEW
   final Widget?      strategy2Button;
 
   const ChartControls({
@@ -41,6 +42,7 @@ class ChartControls extends StatefulWidget {
     required this.onSwitchRiskRatioMode,
     required this.onSettings,
     required this.onReset,
+    required this.onOpenCodeEditor, // ← NEW
     this.strategy2Button,
   }) : super(key: key);
 
@@ -119,6 +121,7 @@ class _ChartControlsState extends State<ChartControls>
         onToggleRiskRatio:     () { widget.onToggleRiskRatio();     _closeMenu(); },
         onSwitchRiskRatioMode: () { widget.onSwitchRiskRatioMode(); _closeMenu(); },
         onSettings:            () { widget.onSettings();            _closeMenu(); },
+        onOpenCodeEditor:      () { widget.onOpenCodeEditor();      _closeMenu(); }, // ← NEW
       ),
     );
 
@@ -221,6 +224,7 @@ class _OverlayMenu extends StatelessWidget {
   final VoidCallback      onToggleRiskRatio;
   final VoidCallback      onSwitchRiskRatioMode;
   final VoidCallback      onSettings;
+  final VoidCallback      onOpenCodeEditor; // ← NEW
 
   const _OverlayMenu({
     required this.style,
@@ -242,6 +246,7 @@ class _OverlayMenu extends StatelessWidget {
     required this.onToggleRiskRatio,
     required this.onSwitchRiskRatioMode,
     required this.onSettings,
+    required this.onOpenCodeEditor, // ← NEW
   });
 
   @override
@@ -335,6 +340,15 @@ class _OverlayMenu extends StatelessWidget {
                       ),
 
                       Divider(color: style.gridColor, height: 12),
+
+                      // ── Pine Script Editor ────────────────────────────────
+                      _MenuItem(
+                        icon:     Icons.code_rounded,
+                        label:    'Pine Script Editor',
+                        isActive: false,
+                        style:    style,
+                        onTap:    onOpenCodeEditor,
+                      ),
 
                       _MenuItem(
                         icon: Icons.palette_outlined, label: 'Style Settings',

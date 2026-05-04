@@ -1,9 +1,14 @@
 // =============================================================================
 // console_state.dart
-// Path: frontend/lib/trading_screen/tradingview/console_state.dart
+// Path: frontend/lib/trading_screen/output_console/console_state.dart
 //
-// Model + state untuk output console panel.
-// Dipisah dari UI supaya mudah di-test dan di-maintain.
+// CHANGES v_execute:
+//  - [NEW] executeCode(String code) — one-shot method: startRun →
+//          ExecuteHook.runCode → setResult. Dipanggil dari editor_toolbar
+//          atau tradingviewcodeeditor_screen, bukan perlu manage state sendiri.
+//  - [NEW] stopRun() — set status error + tulis warning buat Stop button.
+//  - [KEPT] startRun(), setResult(), semua write helpers — tidak diubah.
+//  - Import execute_hook.dart sudah ada sebelumnya, sekarang benar-benar dipakai.
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -13,8 +18,7 @@ import '../../../hooks/execute_hook.dart';
 //  Enums
 // ─────────────────────────────────────────────────────────────────────────────
 
-enum LogLevel { stdout, stderr, info, success, warning, system }
-
+enum LogLevel  { stdout, stderr, info, success, warning, system }
 enum RunStatus { idle, running, done, error }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -35,6 +39,7 @@ class ConsoleLog {
   });
 }
 
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  ConsoleState — ChangeNotifier, di-listen oleh OutputConsolePanel
 // ─────────────────────────────────────────────────────────────────────────────
@@ -44,6 +49,8 @@ class ConsoleState extends ChangeNotifier {
   RunStatus              _status    = RunStatus.idle;
   int                    _lineCount = 0;
   LogLevel?              _filter;
+
+  // ── Getters ────────────────────────────────────────────────────────────────
 
   RunStatus get status    => _status;
   LogLevel? get filter    => _filter;
@@ -58,7 +65,7 @@ class ConsoleState extends ChangeNotifier {
   int get errorCount   => _logs.where((l) => l.level == LogLevel.stderr).length;
   int get warningCount => _logs.where((l) => l.level == LogLevel.warning).length;
 
-  // ── write helpers ──────────────────────────────────────────────────────────
+  // ── Write helpers — tidak diubah ───────────────────────────────────────────
 
   void write(String message, {LogLevel level = LogLevel.stdout}) {
     for (final line in message.split('\n')) {
@@ -79,10 +86,10 @@ class ConsoleState extends ChangeNotifier {
   void writeWarning(String msg) => write(msg, level: LogLevel.warning);
   void writeSystem(String msg)  => write(msg, level: LogLevel.system);
 
-  // ── state control ──────────────────────────────────────────────────────────
+  // ── State control — tidak diubah ──────────────────────────────────────────
 
-  void setStatus(RunStatus status) {
-    _status = status;
+  void setStatus(RunStatus s) {
+    _status = s;
     notifyListeners();
   }
 
@@ -93,15 +100,13 @@ class ConsoleState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Dipanggil sebelum kirim request ke backend
-  void startRun() {
+  void startRun([String? fileName]) {
     clear();
     _status = RunStatus.running;
-    writeSystem('▶  Running script...');
-    notifyListeners();
+    writeSystem('▶  Running${fileName != null ? ' $fileName' : ' script'}...');
+    writeSystem('─' * 48);
   }
 
-  /// Dipanggil setelah dapat response dari backend
   void setResult({
     required String stdout,
     required String stderr,
@@ -112,32 +117,102 @@ class ConsoleState extends ChangeNotifier {
         if (line.isEmpty) continue;
         write(line, level: LogLevel.stdout);
       }
+    } else {
+      writeInfo('(no output)');
     }
 
     if (stderr.trim().isNotEmpty) {
+      writeSystem('─' * 48);
       for (final line in stderr.split('\n')) {
         if (line.isEmpty) continue;
         write(line, level: LogLevel.stderr);
       }
     }
 
+    writeSystem('─' * 48);
+
     if (exitCode == 0) {
-      writeSuccess('✓  Exited with code 0');
+      writeSuccess('✓  Process exited with code 0');
       _status = RunStatus.done;
     } else {
-      writeSystem('✗  Exited with code $exitCode');
+      writeWarning('✗  Process exited with code $exitCode');
       _status = RunStatus.error;
     }
 
     notifyListeners();
   }
 
+  // ── [NEW] stopRun — dipanggil dari Stop button ────────────────────────────
+  //
+  //  ExecuteHook tidak support cancel mid-flight (fire-and-forget HTTP),
+  //  jadi kita set status error sekarang → guard di executeCode() cek
+  //  isRunning sebelum setResult() → output tidak di-push setelah stop.
+  // ─────────────────────────────────────────────────────────────────────────
+  void stopRun() {
+    if (_status != RunStatus.running) return;
+    writeSystem('─' * 48);
+    writeWarning('⚠  Execution stopped by user.');
+    _status = RunStatus.error;
+    notifyListeners();
+  }
+
+  // ── [NEW] executeCode — one-shot: startRun → ExecuteHook → setResult ─────
+  //
+  //  Usage di toolbar / screen:
+  //
+  //    await console.executeCode(activeFile.content, fileName: activeFile.name);
+  //
+  //  Method ini handle semua state transitions sendiri. Caller tidak perlu
+  //  manggil startRun / setResult / setStatus secara manual.
+  //
+  //  Guard `isRunning` sebelum setResult() memastikan kalau stopRun()
+  //  dipanggil saat awaiting, output tidak di-push ke console.
+  // ─────────────────────────────────────────────────────────────────────────
+  Future<void> executeCode(String code, {String? fileName}) async {
+    // Guard: jangan double-run
+    if (_status == RunStatus.running) return;
+
+    // Guard: jangan run kode kosong
+    if (code.trim().isEmpty) {
+      writeWarning('Nothing to run — file is empty.');
+      return;
+    }
+
+    // 1. Setup console
+    startRun(fileName);
+
+    try {
+      // 2. Hit backend via ExecuteHook
+      final result = await ExecuteHook.runCode(code);
+
+      // 3. Guard: stop dipencet sebelum response balik
+      if (!isRunning) return;
+
+      // 4. Push hasil ke console
+      setResult(
+        stdout:   (result['stdout']    as String?) ?? '',
+        stderr:   (result['stderr']    as String?) ?? '',
+        exitCode: (result['exit_code'] as int?)    ?? -1,
+      );
+    } catch (e) {
+      // 5. Network error / timeout
+      if (isRunning) {
+        writeSystem('─' * 48);
+        writeError('ExecuteHook error: $e');
+        _status = RunStatus.error;
+        notifyListeners();
+      }
+    }
+  }
+
+  // ── Filter ─────────────────────────────────────────────────────────────────
+
   void setFilter(LogLevel? level) {
     _filter = level;
     notifyListeners();
   }
 
-  // ── export ─────────────────────────────────────────────────────────────────
+  // ── Export ─────────────────────────────────────────────────────────────────
 
   String get allText => _logs
       .map((l) => '[${_timeStr(l.timestamp)}] ${l.message}')

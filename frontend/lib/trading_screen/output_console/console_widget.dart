@@ -9,6 +9,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../output_console/console_state.dart';
+import '../../../hooks/execute_hook.dart';
 import '../../../style/apps_colors_tradingview.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────

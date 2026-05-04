@@ -59,6 +59,9 @@ RUN mkdir -p /app/core/images_folder_path_exclusive \
 # Clean up build dependencies
 RUN apk del .build-deps
 
+# Whitelist libary python yang boleh digunakan user
+RUN pip install numpy pandas matplotlib scipy requests sympy 
+
 # Copy application code
 COPY . .
 

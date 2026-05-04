@@ -8,6 +8,13 @@
 //    di dalam divider — parent clamp via .clamp() di onDrag callback.
 //  - Divider TIDAK boleh dibungkus ValueListenableBuilder di parent.
 //    Root cause kaku: VLB rebuild → GestureDetector recreated mid-gesture.
+//
+// VERTICAL DRAG FIX (v3):
+//  - VerticalResizableLayout: onDrag sekarang ada di dalam LayoutBuilder
+//    sehingga bisa akses constraints.maxHeight secara live.
+//  - Clamp efektif = [minTop, maxHeight - minTop - dividerThickness]
+//    → bottom panel SELALU punya ruang minimum, divider tidak pernah hilang.
+//  - Top SizedBox juga di-clamp pakai nilai yang sama saat render.
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -287,6 +294,9 @@ class VerticalResizableLayout extends StatefulWidget {
 class _VerticalResizableLayoutState extends State<VerticalResizableLayout> {
   late final ValueNotifier<double> _topHeight;
 
+  // Thickness harus sama dengan ResizableDivider default thickness.
+  static const double _dividerThickness = 6.0;
+
   @override
   void initState() {
     super.initState();
@@ -299,29 +309,52 @@ class _VerticalResizableLayoutState extends State<VerticalResizableLayout> {
     super.dispose();
   }
 
+  /// Hitung batas atas yang aman berdasarkan total height yang tersedia.
+  /// Bottom panel dijamin punya ruang minimum sebesar [widget.minTop]
+  /// supaya divider tidak pernah keluar dari layar.
+  double _effectiveMax(double totalHeight) {
+    return (totalHeight - widget.minTop - _dividerThickness)
+        .clamp(widget.minTop, widget.maxTop);
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
+        final effectiveMax = _effectiveMax(constraints.maxHeight);
+
         return Column(
           children: [
+            // ── Top panel ──────────────────────────────────────────────────
             ValueListenableBuilder<double>(
               valueListenable: _topHeight,
-              builder: (_, height, __) => SizedBox(
-                width:  constraints.maxWidth,
-                height: height,
-                child:  widget.top,
-              ),
+              builder: (_, rawHeight, __) {
+                // Clamp ulang saat render supaya nilai lama yang tersimpan
+                // tidak menyebabkan overflow ketika ukuran layar berubah.
+                final height = rawHeight.clamp(widget.minTop, effectiveMax);
+                return SizedBox(
+                  width:  constraints.maxWidth,
+                  height: height,
+                  child:  widget.top,
+                );
+              },
             ),
+
+            // ── Divider ────────────────────────────────────────────────────
             ResizableDivider(
               axis:   Axis.horizontal,
               chrome: widget.chrome,
+              // onDrag ada di dalam LayoutBuilder → constraints.maxHeight live
               onDrag: (delta) {
                 _topHeight.value =
                     (_topHeight.value + delta)
-                        .clamp(widget.minTop, widget.maxTop);
+                        .clamp(widget.minTop, effectiveMax);
               },
             ),
+
+            // ── Bottom panel ───────────────────────────────────────────────
+            // Expanded otomatis mengisi sisa ruang → tidak perlu hitung manual.
+            // Karena top sudah di-clamp, bottom dijamin tidak pernah 0.
             Expanded(child: widget.bottom),
           ],
         );

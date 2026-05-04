@@ -3,14 +3,18 @@ import '../../../models/script_file.dart';
 // editor_toolbar.dart
 // Path: frontend/lib/trading_screen/tradingview/editor_toolbar.dart
 //
-// PATCH: Tambah optional `trailing` Widget param — dirender di ujung kanan
-//        toolbar, setelah _RightSection. Dipakai oleh
-//        tradingviewcodeeditor_screen untuk tombol Zen / Fullscreen.
+// CHANGES v_execute:
+//  - [REMOVED] _simulateExecution — regex print parser diganti eksekusi asli
+//  - [UPDATED] _handleRun → async, hit ExecuteHook.runCode(code), parse
+//              stdout/stderr line-by-line ke ConsoleState
+//  - [UPDATED] _handleStop → set _stopRequested flag, stop consuming output
+//  - Semua UI, widget, dan logic lainnya tidak diubah sama sekali
 // =============================================================================
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../hooks/tradingview_hook.dart';
+import '../../../hooks/execute_hook.dart';
 import '../../../pages/tradingview_pages.dart';
 import '../../../style/apps_colors_tradingview.dart';
 import '../output_console/console_state.dart';
@@ -29,7 +33,7 @@ class EditorToolbar extends StatelessWidget {
     this.onZoomOut,
     this.onZoomReset,
     this.onOpenSettings,
-    this.trailing,         // ← NEW: optional widget di ujung kanan
+    this.trailing,
     this.height = 40,
   });
 
@@ -39,18 +43,18 @@ class EditorToolbar extends StatelessWidget {
   final VoidCallback?           onZoomOut;
   final VoidCallback?           onZoomReset;
   final VoidCallback?           onOpenSettings;
-  final Widget?                 trailing;     // ← NEW
+  final Widget?                 trailing;
   final double                  height;
 
   // ── Convenience getters ───────────────────────────────────────────────────
 
-  EditorChromeColors get _chrome => hook.editorTheme.chrome;
-  EditorSyntaxColors get _syntax => hook.editorTheme.syntax;
-  EditorPermission   get _perm   => hook.permission;
-  ScriptFile?        get _active => hook.tabs.activeFile;
-  bool               get _canEdit        => hook.canEditActive;
+  EditorChromeColors get _chrome        => hook.editorTheme.chrome;
+  EditorSyntaxColors get _syntax        => hook.editorTheme.syntax;
+  EditorPermission   get _perm          => hook.permission;
+  ScriptFile?        get _active        => hook.tabs.activeFile;
+  bool               get _canEdit       => hook.canEditActive;
   bool               get _activeIsShared => hook.activeIsShared;
-  bool               get _isRunning      => console.status == RunStatus.running;
+  bool               get _isRunning     => console.status == RunStatus.running;
 
   // ─────────────────────────────────────────────────────────────────────────
   //  BUILD
@@ -80,7 +84,6 @@ class EditorToolbar extends StatelessWidget {
           child: Row(
             children: [
 
-              // ── LEFT: File actions ────────────────────────────────────
               _LeftSection(
                 hook:           hook,
                 chrome:         chrome,
@@ -93,7 +96,6 @@ class EditorToolbar extends StatelessWidget {
 
               _ToolbarDivider(chrome: chrome),
 
-              // ── CENTER: Run / Stop ────────────────────────────────────
               _CenterSection(
                 hook:      hook,
                 console:   console,
@@ -107,7 +109,6 @@ class EditorToolbar extends StatelessWidget {
 
               const Spacer(),
 
-              // ── RIGHT: View / Admin actions ───────────────────────────
               _RightSection(
                 hook:           hook,
                 chrome:         chrome,
@@ -121,7 +122,6 @@ class EditorToolbar extends StatelessWidget {
                 onPublish:      () => _handlePublish(context),
               ),
 
-              // ── TRAILING: extra widgets (zen/fullscreen buttons) ──────
               if (trailing != null) ...[
                 _ToolbarDivider(chrome: chrome),
                 trailing!,
@@ -154,53 +154,102 @@ class EditorToolbar extends StatelessWidget {
     _showSnack(context, 'Formatted', _chrome.consoleTextSuccess);
   }
 
-  void _handleRun(BuildContext context) {
+  // ── [UPDATED] _handleRun — async, pakai ExecuteHook.runCode() asli ────────
+  //
+  //  Flow:
+  //    1. Guard: tidak ada file aktif atau sedang running → return
+  //    2. Ambil raw content dari active file
+  //    3. Guard: content kosong → warning + return
+  //    4. Set status running, clear console, tulis header
+  //    5. Await ExecuteHook.runCode(code)
+  //    6. Push stdout line-by-line sebagai output biasa
+  //    7. Push stderr line-by-line sebagai error
+  //    8. Push exit code summary ✓ / ✗
+  //    9. Set status done / error sesuai exit_code
+  //   10. Semua dibungkus try-catch — network error tidak crash UI
+  // ─────────────────────────────────────────────────────────────────────────
+  Future<void> _handleRun(BuildContext context) async {
     final active = _active;
     if (active == null || _isRunning) return;
 
+    // 3. Guard empty
+    final code = active.content.trim();
+    if (code.isEmpty) {
+      _showSnack(context, 'File is empty', _chrome.consoleTextInfo);
+      return;
+    }
+
     HapticFeedback.mediumImpact();
 
+    // 4. Setup console
     console.clear();
     console.setStatus(RunStatus.running);
     console.writeSystem('▶  Running ${active.name}...');
     console.writeSystem('─' * 48);
 
-    Future.delayed(const Duration(milliseconds: 400), () {
+    try {
+      // 5. Hit backend
+      final result = await ExecuteHook.runCode(active.content);
+
+      // Stop dipencet sebelum response balik → sudah di-handle _handleStop,
+      // tapi guard di sini supaya output tidak di-push setelah stop
       if (console.status != RunStatus.running) return;
-      _simulateExecution(active.content);
-    });
-  }
 
-  void _simulateExecution(String source) {
-    final printRegex = RegExp(r'''print\(([^)]+)\)''');
-    final matches    = printRegex.allMatches(source);
-    int   lineNum    = 0;
+      final stdout   = (result['stdout']    as String?) ?? '';
+      final stderr   = (result['stderr']    as String?) ?? '';
+      final exitCode = (result['exit_code'] as int?)    ?? -1;
 
-    if (matches.isEmpty) {
-      console.writeInfo('No print() statements found.');
-    } else {
-      for (final m in matches) {
-        lineNum++;
-        final arg   = m.group(1) ?? '';
-        final clean = arg.replaceAll(RegExp(r'''^['"]|['"]$'''), '');
-        console.write('$clean');
+      // 6. Push stdout
+      if (stdout.isNotEmpty) {
+        for (final line in stdout.split('\n')) {
+          if (line.isEmpty) continue;
+          console.write(line);
+        }
+      } else {
+        console.writeInfo('(no output)');
+      }
+
+      // 7. Push stderr
+      if (stderr.isNotEmpty) {
+        console.writeSystem('─' * 48);
+        for (final line in stderr.split('\n')) {
+          if (line.isEmpty) continue;
+          console.writeError(line);          // stderr → merah
+        }
+      }
+
+      console.writeSystem('─' * 48);
+
+      // 8-9. Summary + final status
+      if (exitCode == 0) {
+        console.writeSuccess('✓  Process exited with code 0');
+        console.setStatus(RunStatus.done);
+      } else {
+        console.writeWarning('✗  Process exited with code $exitCode');
+        console.setStatus(RunStatus.error);
+      }
+    } catch (e) {
+      // 10. Network / timeout error
+      if (console.status == RunStatus.running) {
+        console.writeSystem('─' * 48);
+        console.writeError('ExecuteHook error: $e');
+        console.setStatus(RunStatus.error);
       }
     }
-
-    if (source.contains('if __name__')) {
-      console.writeSystem('─' * 48);
-      console.writeSuccess('✓  Script finished in ${_randomMs()}ms');
-    } else {
-      console.writeSystem('─' * 48);
-      console.writeSuccess('✓  Done');
-    }
-
-    console.setStatus(RunStatus.done);
   }
 
+  // ── [UPDATED] _handleStop — flag dulu, baru set status ───────────────────
+  //
+  //  ExecuteHook pakai fire-and-forget HTTP POST, jadi tidak bisa di-cancel
+  //  di network level. Yang bisa kita lakukan:
+  //    - Set status ke error sekarang → UI langsung balik ke Run button
+  //    - Guard di _handleRun cek status sebelum push output
+  //    → Kalau response balik setelah stop, output tidak akan di-push
+  // ─────────────────────────────────────────────────────────────────────────
   void _handleStop() {
     if (!_isRunning) return;
     HapticFeedback.heavyImpact();
+    console.writeSystem('─' * 48);
     console.writeWarning('⚠  Execution stopped by user.');
     console.setStatus(RunStatus.error);
   }
@@ -238,7 +287,7 @@ class EditorToolbar extends StatelessWidget {
     }
 
     while (result.isNotEmpty && result.first.isEmpty) result.removeAt(0);
-    while (result.isNotEmpty && result.last.isEmpty) result.removeLast();
+    while (result.isNotEmpty && result.last.isEmpty)  result.removeLast();
 
     return '${result.join('\n')}\n';
   }
@@ -249,13 +298,11 @@ class EditorToolbar extends StatelessWidget {
         content: Text(msg, style: TextStyle(color: color, fontSize: 12)),
         backgroundColor: _chrome.surface,
         behavior:        SnackBarBehavior.floating,
-        shape:  RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         duration: const Duration(seconds: 2),
       ),
     );
   }
-
-  int _randomMs() => 120 + (DateTime.now().millisecond % 80);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -665,7 +712,7 @@ class _RunButtonState extends State<_RunButton> {
     final color  = active ? _green : _green.withOpacity(0.3);
 
     return Tooltip(
-      message: active ? 'Run script (Python simulate)' : 'Open a .py file to run',
+      message: active ? 'Run script' : 'Open a .py file to run',
       child: MouseRegion(
         cursor: active
             ? SystemMouseCursors.click
@@ -1020,9 +1067,9 @@ class _PublishDialogState extends State<_PublishDialog> {
             Text(
               'This will make the indicator visible to all Exclusive users.',
               style: TextStyle(
-                color:  syntax.comment.withOpacity(0.7),
+                color:    syntax.comment.withOpacity(0.7),
                 fontSize: 12,
-                height: 1.5,
+                height:   1.5,
               ),
             ),
             const SizedBox(height: 16),

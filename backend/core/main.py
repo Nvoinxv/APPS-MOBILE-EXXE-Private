@@ -81,7 +81,7 @@ app.include_router(market_outlook_route)
 app.include_router(router_research_coin)
 app.include_router(the_street_view_route)
 app.include_router(router_profile)
-app.include_router(router_execute_controller)
+app.include_router(router_execute_controller, tags=["Python Terminal"])
 
 # ExxeQuantCore
 app.include_router(base_signal_router, prefix="/api/v1/signal", tags=["Signal"])

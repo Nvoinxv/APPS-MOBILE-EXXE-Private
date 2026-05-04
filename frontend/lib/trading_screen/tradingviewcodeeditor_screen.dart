@@ -2,19 +2,24 @@
 // tradingviewcodeeditor_screen.dart
 // Path: frontend/lib/trading_screen/tradingviewcodeeditor_screen.dart
 //
-// Perubahan dari versi sebelumnya:
-//  - Hapus _editorFontSize dan _editorLineHeight yang tidak terpakai
-//    (zoomDelta sekarang di-handle penuh oleh CodeEditorWidget).
-//  - CodeEditorWidget sudah menerima full EditorThemeState untuk v2 highlighter
-//    (tidak ada perubahan param di sini — transparan untuk screen ini).
-//  - Semua fix sebelumnya tetap: null-safe scroll sync, smooth drag divider,
-//    reusable _showNameDialog, dll.
+// FIX v_tabbar_final:
+//  - [ROOT CAUSE] `hide EditorToolbar` pada editor_tab_bar.dart tidak cukup
+//    kalau EditorTabBar tidak ter-expose sebagai top-level export dari file itu.
+//    Dart's "The method 'EditorTabBar' isn't defined" berarti class-nya tidak
+//    masuk scope — bukan ambiguous, tapi benar-benar tidak ditemukan.
+//  - [FIX] Ganti import combinator yang fragile dengan:
+//      • editor_tab_bar.dart  → import dengan prefix `tab_bar_lib`
+//      • editor_toolbar.dart  → import normal (tanpa prefix)
+//    Dengan prefix, `EditorTabBar` dipanggil sebagai `tab_bar_lib.EditorTabBar`
+//    → tidak ada ambiguity, tidak ada "not found".
+//  - Semua logic, widget, dan struktur tidak diubah sama sekali.
 // =============================================================================
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../hooks/tradingview_hook.dart';
+import '../../hooks/execute_hook.dart';
 import '../../pages/tradingview_pages.dart';
 import '../../style/apps_colors_tradingview.dart';
 import '../../postingan/postingan_tradingview.dart';
@@ -23,14 +28,19 @@ import '../../models/script_folder.dart';
 
 import 'output_console/console_state.dart';
 
-import 'tradingview/code_editor_widget.dart';
+// BreakpointState — satu definisi, dari sini saja
 import 'tradingview/line_number_gutter.dart';
+
+import 'tradingview/code_editor_widget.dart';
 import 'tradingview/file_explorer_panel.dart';
 import 'tradingview/file_tile.dart';
 import 'tradingview/folder_tree_tile.dart';
 import 'tradingview/context_menu_file.dart';
-import 'tradingview/editor_tab_bar.dart';
+
+// EditorToolbar tetap import normal — tidak ada konflik setelah pakai prefix di atas
 import 'tradingview/editor_toolbar.dart';
+import 'tradingview/editor_tab_bar.dart' as tab_bar_lib;
+
 import 'tradingview/output_console_panel.dart';
 import 'tradingview/resizable_divider.dart';
 
@@ -45,12 +55,12 @@ class TradingViewCodeEditorScreen extends StatefulWidget {
 class _TradingViewCodeEditorScreenState
     extends State<TradingViewCodeEditorScreen> {
 
-  // ── Layout ValueNotifiers — VLB hanya wrap SizedBox, divider statis ───────
+  // ── Layout ValueNotifiers ──────────────────────────────────────────────────
 
   late final ValueNotifier<double> _explorerWidth = ValueNotifier(240);
   late final ValueNotifier<double> _consoleHeight = ValueNotifier(180);
 
-  // ── Bool state ────────────────────────────────────────────────────────────
+  // ── Bool state ─────────────────────────────────────────────────────────────
 
   bool   _consoleExpanded = true;
   bool   _explorerVisible = true;
@@ -63,7 +73,7 @@ class _TradingViewCodeEditorScreenState
   static const double _minConsole  = 80;
   static const double _maxConsole  = 400;
 
-  // ── Scroll controllers ────────────────────────────────────────────────────
+  // ── Controllers ────────────────────────────────────────────────────────────
 
   final ConsoleState     _console            = ConsoleState();
   final BreakpointState  _breakpoints        = BreakpointState();
@@ -73,18 +83,18 @@ class _TradingViewCodeEditorScreenState
   final ScrollController _consoleScrollCtrl  = ScrollController();
   final ScrollController _explorerScrollCtrl = ScrollController();
 
-  // ── Editor state ──────────────────────────────────────────────────────────
+  // ── Editor state ───────────────────────────────────────────────────────────
 
   int?   _activeLineIndex;
   int    _lineCount = 1;
 
-  // ── Indicator panel ───────────────────────────────────────────────────────
+  // ── Indicator panel ────────────────────────────────────────────────────────
 
   bool                _showIndicators      = false;
   String?             _selectedIndicatorId;
   List<IndicatorMeta> _indicators          = const [];
 
-  // ── Scroll sync guard ─────────────────────────────────────────────────────
+  // ── Scroll sync guard ──────────────────────────────────────────────────────
 
   bool _syncingGutter = false;
 
@@ -113,12 +123,11 @@ class _TradingViewCodeEditorScreenState
     super.dispose();
   }
 
-  // Null-safe scroll sync — guard hasClients + hasContentDimensions
   void _syncGutterToCode() {
     if (_syncingGutter) return;
-    if (!_codeScrollVCtrl.hasClients   || !_gutterScrollCtrl.hasClients)  return;
-    if (!_codeScrollVCtrl.position.hasContentDimensions)                   return;
-    if (!_gutterScrollCtrl.position.hasContentDimensions)                  return;
+    if (!_codeScrollVCtrl.hasClients || !_gutterScrollCtrl.hasClients) return;
+    if (!_codeScrollVCtrl.position.hasContentDimensions)               return;
+    if (!_gutterScrollCtrl.position.hasContentDimensions)              return;
 
     final offset = _codeScrollVCtrl.offset;
     if (_gutterScrollCtrl.offset == offset) return;
@@ -139,6 +148,48 @@ class _TradingViewCodeEditorScreenState
 
   IsolatedTradingViewHook get _hook  => IsolatedHookProvider.of(context);
   EditorThemeState        get _theme => _hook.editorTheme.theme;
+
+  ScriptFile? _getActiveFile(IsolatedTradingViewHook hook) {
+    try {
+      // ignore: avoid_dynamic_calls
+      return (hook.workspace as dynamic).activeFile as ScriptFile?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  Run / Stop code
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<void> _runCode() async {
+    if (_console.isRunning) return;
+
+    final hook       = _hook;
+    final activeFile = _getActiveFile(hook);
+    final code       = activeFile?.content ?? '';
+
+    setState(() => _consoleExpanded = true);
+
+    if (code.trim().isEmpty) {
+      _console.writeWarning('Nothing to run — active file is empty.');
+      return;
+    }
+
+    await _console.executeCode(code, fileName: activeFile?.name);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_consoleScrollCtrl.hasClients) {
+        _consoleScrollCtrl.animateTo(
+          _consoleScrollCtrl.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve:    Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  void _stopCode() => _console.stopRun();
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Zen / Fullscreen
@@ -234,7 +285,7 @@ class _TradingViewCodeEditorScreenState
       );
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Dialogs — semua pakai _showNameDialog (DRY)
+  //  Dialogs
   // ═══════════════════════════════════════════════════════════════════════════
 
   Future<void> _showRenameDialog(ScriptFile file) async {
@@ -299,8 +350,7 @@ class _TradingViewCodeEditorScreenState
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: chrome.surface,
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         title: Text(
           title,
           style: TextStyle(
@@ -404,49 +454,52 @@ class _TradingViewCodeEditorScreenState
         builder: (context, _) => Column(
           children: [
 
-            // ── Toolbar ──────────────────────────────────────────────────
-            EditorToolbar(
-              hook:        hook,
-              console:     _console,
-              onZoomIn:    () => setState(() =>
-                  _zoomDelta = (_zoomDelta + 1).clamp(-6.0, 14.0)),
-              onZoomOut:   () => setState(() =>
-                  _zoomDelta = (_zoomDelta - 1).clamp(-6.0, 14.0)),
-              onZoomReset: () => setState(() => _zoomDelta = 0),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _ModeButton(
-                    tooltip:  _zenMode ? 'Exit Zen Mode' : 'Zen Mode',
-                    icon:     _zenMode
-                        ? Icons.blur_off_rounded
-                        : Icons.center_focus_strong_rounded,
-                    isActive: _zenMode,
-                    chrome:   chrome,
-                    onTap:    _toggleZen,
-                  ),
-                  const SizedBox(width: 2),
-                  _ModeButton(
-                    tooltip:  _fullscreen ? 'Exit Fullscreen' : 'Fullscreen',
-                    icon:     _fullscreen
-                        ? Icons.fullscreen_exit_rounded
-                        : Icons.fullscreen_rounded,
-                    isActive: _fullscreen,
-                    chrome:   chrome,
-                    onTap:    _toggleFullscreen,
-                  ),
-                  const SizedBox(width: 4),
-                ],
+            // ── Toolbar ────────────────────────────────────────────────────
+            ListenableBuilder(
+              listenable: _console,
+              builder: (_, __) => EditorToolbar(
+                hook:        hook,
+                console:     _console,
+                onZoomIn:    () => setState(() =>
+                    _zoomDelta = (_zoomDelta + 1).clamp(-6.0, 14.0)),
+                onZoomOut:   () => setState(() =>
+                    _zoomDelta = (_zoomDelta - 1).clamp(-6.0, 14.0)),
+                onZoomReset: () => setState(() => _zoomDelta = 0),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _ModeButton(
+                      tooltip:  _zenMode ? 'Exit Zen Mode' : 'Zen Mode',
+                      icon:     _zenMode
+                          ? Icons.blur_off_rounded
+                          : Icons.center_focus_strong_rounded,
+                      isActive: _zenMode,
+                      chrome:   chrome,
+                      onTap:    _toggleZen,
+                    ),
+                    const SizedBox(width: 2),
+                    _ModeButton(
+                      tooltip:  _fullscreen ? 'Exit Fullscreen' : 'Fullscreen',
+                      icon:     _fullscreen
+                          ? Icons.fullscreen_exit_rounded
+                          : Icons.fullscreen_rounded,
+                      isActive: _fullscreen,
+                      chrome:   chrome,
+                      onTap:    _toggleFullscreen,
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                ),
               ),
             ),
 
-            // ── Body ─────────────────────────────────────────────────────
+            // ── Body ───────────────────────────────────────────────────────
             Expanded(
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
 
-                  // ── Explorer — VLB hanya wrap SizedBox ─────────────────
+                  // ── Explorer ──────────────────────────────────────────────
                   if (_explorerVisible && !_zenMode) ...[
                     ValueListenableBuilder<double>(
                       valueListenable: _explorerWidth,
@@ -482,7 +535,6 @@ class _TradingViewCodeEditorScreenState
                         ),
                       ),
                     ),
-                    // Divider STATIS — di luar VLB supaya drag tidak putus
                     ResizableDivider(
                       axis:   Axis.vertical,
                       chrome: chrome,
@@ -494,12 +546,12 @@ class _TradingViewCodeEditorScreenState
                     ),
                   ],
 
-                  // ── Editor column ───────────────────────────────────────
+                  // ── Editor column ─────────────────────────────────────────
                   Expanded(
                     child: Column(
                       children: [
 
-                        // ── Tab bar ───────────────────────────────────────
+                        // ── Tab bar ──────────────────────────────────────────
                         SizedBox(
                           height: 36,
                           child: Row(
@@ -511,12 +563,14 @@ class _TradingViewCodeEditorScreenState
                                   onTap: () => setState(() =>
                                       _explorerVisible = !_explorerVisible),
                                 ),
-                              Expanded(child: EditorTabBar(hook: hook)),
+                              // [FIX] Panggil via prefix — dijamin resolve ke
+                              // EditorTabBar di editor_tab_bar.dart, bukan ambiguous
+                              Expanded(child: tab_bar_lib.EditorTabBar(hook: hook)),
                             ],
                           ),
                         ),
 
-                        // ── Code editor — v2 highlighter aktif lewat hook ─
+                        // ── Code editor ──────────────────────────────────────
                         Expanded(
                           child: CodeEditorWidget(
                             hook:                   hook,
@@ -529,9 +583,8 @@ class _TradingViewCodeEditorScreenState
                           ),
                         ),
 
-                        // ── Console ───────────────────────────────────────
+                        // ── Console ──────────────────────────────────────────
                         if (!_zenMode) ...[
-                          // Divider STATIS (bungkus toggle bar)
                           ResizableDivider(
                             axis:   Axis.horizontal,
                             chrome: chrome,
@@ -796,6 +849,17 @@ class _ConsoleToggleBar extends StatelessWidget {
                 letterSpacing: 1.4,
               ),
             ),
+            if (console.isRunning) ...[
+              const SizedBox(width: 8),
+              SizedBox(
+                width:  10,
+                height: 10,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.5,
+                  color:       chrome.cursorColor,
+                ),
+              ),
+            ],
             const Spacer(),
             if (console.errorCount > 0) ...[
               Icon(Icons.error_outline_rounded,

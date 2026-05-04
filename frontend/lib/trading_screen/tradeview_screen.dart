@@ -79,11 +79,6 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
   double _lastOffsetY     = 0.0;
 
   // ── Panel layout state ────────────────────────────────────────────────────
-  // _bottomHeight  : tinggi aktual panel editor saat ini
-  // _bottomExpanded: toggle collapse/expand (cukup hide panel, divider tetap ada)
-  // _minBottom     : tinggi minimum — cukup untuk toolbar editor keliatan
-  // maxBottom & halfBottom dihitung dinamis dari screen height di _buildChartArea
-
   double _bottomHeight   = 220.0;
   bool   _bottomExpanded = true;
 
@@ -243,6 +238,21 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
       currentStyle: _chartStyle,
       onChanged:    (next) => setState(() => _chartStyle = next),
     );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Code editor panel — open / expand dari Tools menu
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  void _openCodeEditor() {
+    setState(() {
+      _bottomExpanded = true;
+      // Kalau panel terlalu kecil (collapsed / belum pernah dibuka),
+      // snap ke tinggi default supaya langsung keliatan
+      if (_bottomHeight < _minBottom * 2) {
+        _bottomHeight = 220.0;
+      }
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -434,8 +444,6 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
                 ),
               ),
 
-            // Expanded wraps _buildChartArea sehingga CandleInfoPanel
-            // dan ChartControls tidak pernah overflow ke bawah
             Expanded(child: _buildChartArea(style)),
 
             if (state.selectedCandle != null)
@@ -529,14 +537,6 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
   }
 
   // ─── Chart Area ────────────────────────────────────────────────────────────
-  //
-  // FIX UTAMA ADA DI SINI:
-  //   1. LayoutBuilder di level paling luar → dapat totalH yang akurat
-  //   2. maxBottom  = 80% totalH  (bisa full-screen editor)
-  //   3. halfBottom = 40% totalH  (snap point tengah)
-  //   4. Double-tap divider → cycling snap: half ↔ full, atau collapsed → half
-  //   5. AnimatedContainer di bottom panel → transisi smooth
-  //   6. Clamp guard pakai addPostFrameCallback agar tidak rebuild mid-frame
 
   Widget _buildChartArea(CandlestickStyle style) {
     final state = _controller.state;
@@ -561,15 +561,12 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
       );
     }
 
-    // ── Snap + clamp logic (semua dihitung dari tinggi aktual layar) ─────────
     return LayoutBuilder(
       builder: (context, outerConstraints) {
         final totalH     = outerConstraints.maxHeight;
-        final maxBottom  = totalH * 0.80;   // 80% → editor hampir full screen
-        final halfBottom = totalH * 0.40;   // 40% → half split
+        final maxBottom  = totalH * 0.80;
+        final halfBottom = totalH * 0.40;
 
-        // Clamp guard: kalau state masih nyimpen nilai lama yang melebihi batas
-        // baru (mis. setelah rotate), koreksi di frame berikutnya
         if (_bottomHeight > maxBottom) {
           SchedulerBinding.instance.addPostFrameCallback((_) {
             if (mounted) setState(() => _bottomHeight = maxBottom);
@@ -579,7 +576,6 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
         return Column(
           children: [
 
-            // ── Chart canvas (Expanded → otomatis menyusut saat editor diperbesar)
             Expanded(
               child: LayoutBuilder(
                 builder: (context, constraints) {
@@ -720,16 +716,10 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
               ),
             ),
 
-            // ── Resizable Divider ─────────────────────────────────────────────
-            // Double-tap → cycling snap:
-            //   collapsed (<30% halfBottom) → half
-            //   half (<85% maxBottom)       → full (maxBottom)
-            //   full                        → half
             GestureDetector(
               onDoubleTap: () {
                 setState(() {
                   if (!_bottomExpanded) {
-                    // Kalau sedang collapsed, expand ke half dulu
                     _bottomExpanded = true;
                     _bottomHeight   = halfBottom;
                   } else if (_bottomHeight < halfBottom * 0.6) {
@@ -746,7 +736,6 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
                 onDrag:  (delta) => setState(() {
                   final next = _bottomHeight - delta;
                   if (next < _minBottom * 0.5) {
-                    // Kalau di-drag terlalu ke bawah → collapse
                     _bottomExpanded = false;
                     _bottomHeight   = _minBottom;
                   } else {
@@ -760,13 +749,10 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
               ),
             ),
 
-            // ── Bottom Panel (editor) ─────────────────────────────────────────
-            // AnimatedContainer: transisi tinggi smooth saat snap / drag
             AnimatedContainer(
               duration: const Duration(milliseconds: 160),
               curve:    Curves.easeOut,
               height:   _bottomExpanded ? _bottomHeight : 0.0,
-              // ClipRect penting — cegah konten editor meluap saat animasi
               child: ClipRect(
                 child: _buildBottomPanel(style),
               ),
@@ -807,7 +793,8 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
         _controller.switchRiskRatioMode();
         _riskRatioKey.currentState?.setMode(state.riskRatioMode);
       },
-      onSettings: _showStyleSettings,
+      onSettings:       _showStyleSettings,
+      onOpenCodeEditor: _openCodeEditor, // ← tambahan ini aja
       onReset: () {
         _controller.resetViewport();
         _riskRatioKey.currentState?.clearRiskRatio();
