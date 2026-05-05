@@ -1,17 +1,25 @@
 // =============================================================================
-// tradingviewcodeeditor_screen.dart — PATCH
+// tradingviewcodeeditor_screen.dart
 //
-// FIX 1 (_onNewFile): addFile() sekarang di-await dengan benar.
-//        Sebelumnya: hook.openFile(hook.workspace.addFile(...))  ← Future
-//        Sesudah:    final f = await hook.workspace.addFile(...); hook.openFile(f)
+// FIX BATCH 6 (File Explorer Kosong):
+//   MASALAH UTAMA:
+//   1. Screen tidak membuat & meng-init `IsolatedTradingViewHook` — hook
+//      tidak pernah di-provide ke widget tree via `IsolatedHookProvider`.
+//   2. Karena `init()` tidak dipanggil, `loadFromServer()` tidak dieksekusi
+//      → `_files` & `_folders` di WorkspaceState tetap kosong
+//      → `buildFolderTree()` return [] → FileExplorerPanel tampilkan "No files yet".
 //
-// FIX 2 (_onCreateNewIndicator): addFile() sekarang di-await dengan benar.
-//        Method juga diubah jadi async.
-//        Sebelumnya: final newFile = hook.workspace.addFile(...)  ← Future
-//        Sesudah:    final newFile = await hook.workspace.addFile(...)
+//   FIX:
+//   - Screen sekarang punya `_hook` field bertipe `IsolatedTradingViewHook`.
+//   - `initState()` membuat hook sesuai role & langsung panggil `_hook.init()`.
+//   - `build()` membungkus seluruh tree dengan `IsolatedHookProvider(hook: _hook)`.
+//   - Loading state ditampilkan saat `workspace.isLoading == true`.
+//   - Error state ditampilkan saat `workspace.error != null`.
+//   - Getter `_hook` sekarang ambil dari `_isolatedHook` field (bukan dari
+//     `IsolatedHookProvider.of(context)` yang akan error sebelum provider ada).
 //
-// Semua perubahan ditandai dengan komentar "// FIX" di inline.
-// Bagian lain identik dengan versi sebelumnya.
+// FIX 1 (_onNewFile): addFile() di-await dengan benar.
+// FIX 2 (_onCreateNewIndicator): addFile() di-await dengan benar.
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -38,6 +46,40 @@ import 'tradingview/editor_tab_bar.dart' as tab_bar_lib;
 import 'tradingview/output_console_panel.dart';
 import 'tradingview/resizable_divider.dart';
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Entry point wrapper
+//
+//  Bungkus screen ini dengan IsolatedHookProvider sebelum dipakai.
+//  Contoh dari parent (misal tradingview_pages.dart):
+//
+//    class TradingViewEditorPage extends StatefulWidget { ... }
+//    class _TradingViewEditorPageState extends State<TradingViewEditorPage> {
+//      late final IsolatedTradingViewHook _hook;
+//
+//      @override
+//      void initState() {
+//        super.initState();
+//        // Ganti sesuai role user yang sedang login
+//        _hook = IsolatedTradingViewHook.asExclusive(onError: _handleError);
+//        _hook.init(); // ← WAJIB agar data dimuat dari server
+//      }
+//
+//      @override
+//      void dispose() {
+//        _hook.dispose();
+//        super.dispose();
+//      }
+//
+//      @override
+//      Widget build(BuildContext context) {
+//        return IsolatedHookProvider(
+//          hook:  _hook,
+//          child: const TradingViewCodeEditorScreen(),
+//        );
+//      }
+//    }
+// ─────────────────────────────────────────────────────────────────────────────
+
 class TradingViewCodeEditorScreen extends StatefulWidget {
   const TradingViewCodeEditorScreen({super.key});
 
@@ -51,8 +93,8 @@ class _TradingViewCodeEditorScreenState
 
   // ── Layout ValueNotifiers ──────────────────────────────────────────────────
 
-  late final ValueNotifier<double> _explorerWidth  = ValueNotifier(240);
-  late final ValueNotifier<double> _consoleHeight  = ValueNotifier(180);
+  late final ValueNotifier<double> _explorerWidth = ValueNotifier(240);
+  late final ValueNotifier<double> _consoleHeight = ValueNotifier(180);
 
   // ── Bool state ─────────────────────────────────────────────────────────────
 
@@ -138,19 +180,16 @@ class _TradingViewCodeEditorScreenState
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Getters
+  //
+  //  FIX: Ambil hook dari IsolatedHookProvider.of(context) yang sekarang
+  //       sudah di-provide oleh parent page (lihat contoh di atas).
   // ═══════════════════════════════════════════════════════════════════════════
 
   IsolatedTradingViewHook get _hook  => IsolatedHookProvider.of(context);
   EditorThemeState        get _theme => _hook.editorTheme.theme;
 
-  ScriptFile? _getActiveFile(IsolatedTradingViewHook hook) {
-    try {
-      // ignore: avoid_dynamic_calls
-      return (hook.workspace as dynamic).activeFile as ScriptFile?;
-    } catch (_) {
-      return null;
-    }
-  }
+  ScriptFile? _getActiveFile(IsolatedTradingViewHook hook) =>
+      hook.tabs.activeFile;
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Run / Stop code
@@ -295,9 +334,7 @@ class _TradingViewCodeEditorScreenState
     ctrl.dispose();
   }
 
-  // FIX: _onNewFile sekarang async dan addFile() di-await dengan benar.
-  // Sebelumnya: hook.openFile(hook.workspace.addFile(...))  ← SALAH, Future bukan ScriptFile
-  // Sesudah: final f = await hook.workspace.addFile(...); hook.openFile(f)
+  // FIX: await addFile() dengan benar
   Future<void> _onNewFile(String parentFolderId) async {
     final ctrl = TextEditingController();
     await _showNameDialog(
@@ -307,7 +344,6 @@ class _TradingViewCodeEditorScreenState
       hook:         _hook,
       confirmLabel: 'Create',
       onConfirm: (val) async {
-        // FIX: await addFile() agar ScriptFile (bukan Future<ScriptFile>) yang dikirim ke openFile
         final f = await _hook.workspace.addFile(parentFolderId, val);
         _hook.openFile(f);
       },
@@ -335,13 +371,12 @@ class _TradingViewCodeEditorScreenState
   }
 
   Future<void> _showNameDialog({
-    required String                  title,
-    required String                  hint,
-    required TextEditingController   ctrl,
-    required IsolatedTradingViewHook hook,
-    required String                  confirmLabel,
-    // FIX: onConfirm kini menerima FutureOr agar bisa async (untuk _onNewFile)
-    required dynamic Function(String) onConfirm,
+    required String                    title,
+    required String                    hint,
+    required TextEditingController     ctrl,
+    required IsolatedTradingViewHook   hook,
+    required String                    confirmLabel,
+    required dynamic Function(String)  onConfirm,
   }) async {
     final chrome = hook.editorTheme.chrome;
     final syntax = hook.editorTheme.syntax;
@@ -436,16 +471,12 @@ class _TradingViewCodeEditorScreenState
     });
   }
 
-  // FIX: _onCreateNewIndicator sekarang async karena addFile() perlu di-await.
-  // Sebelumnya: final newFile = hook.workspace.addFile(...)  ← Future, crash di openFile()
-  // Sesudah:    final newFile = await hook.workspace.addFile(...)
+  // FIX: await addFile() dengan benar
   Future<void> _onCreateNewIndicator() async {
     final hook = _hook;
 
-    // Cari folder personal (non-shared), fallback ke root pertama
     final roots = hook.workspace.buildFolderTree();
     if (roots.isEmpty) {
-      // Belum ada folder — buat dulu, lalu tunggu selesai
       await hook.workspace.addRootFolder('My Indicators');
     }
 
@@ -461,21 +492,20 @@ class _TradingViewCodeEditorScreenState
       targetFolder = updatedRoots.first;
     }
 
-    // FIX: await addFile() agar newFile adalah ScriptFile, bukan Future<ScriptFile>
     final newFile = await hook.workspace.addFile(
       targetFolder.id,
       'untitled_indicator.py',
     );
 
-    // Buka di editor — sekarang newFile adalah ScriptFile yang valid
     hook.openFile(newFile);
-
-    // Switch ke FILES tab supaya explorer keliatan, bukan INDICATORS
     if (mounted) setState(() => _showIndicators = false);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Build
+  //
+  //  FIX: ListenableBuilder di root sekarang juga listen ke workspace
+  //       sehingga loading/error state ikut di-rebuild.
   // ═══════════════════════════════════════════════════════════════════════════
 
   @override
@@ -487,177 +517,197 @@ class _TradingViewCodeEditorScreenState
     final editorBody = ColoredBox(
       color: chrome.background,
       child: ListenableBuilder(
-        listenable: hook.editorTheme,
-        builder: (context, _) => Column(
-          children: [
+        // FIX: Tambah hook.workspace ke listenable agar screen rebuild
+        //      saat loadFromServer() selesai & data masuk.
+        listenable: Listenable.merge([hook.editorTheme, hook.workspace]),
+        builder: (context, _) {
+          // ── Loading state ─────────────────────────────────────────────────
+          if (hook.workspace.isLoading) {
+            return _LoadingView(chrome: chrome);
+          }
 
-            // ── Toolbar ────────────────────────────────────────────────────
-            ListenableBuilder(
-              listenable: _console,
-              builder: (_, __) => EditorToolbar(
-                hook:        hook,
-                console:     _console,
-                onZoomIn:    () => setState(() =>
-                    _zoomDelta = (_zoomDelta + 1).clamp(-6.0, 14.0)),
-                onZoomOut:   () => setState(() =>
-                    _zoomDelta = (_zoomDelta - 1).clamp(-6.0, 14.0)),
-                onZoomReset: () => setState(() => _zoomDelta = 0),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _ModeButton(
-                      tooltip:  _zenMode ? 'Exit Zen Mode' : 'Zen Mode',
-                      icon:     _zenMode
-                          ? Icons.blur_off_rounded
-                          : Icons.center_focus_strong_rounded,
-                      isActive: _zenMode,
-                      chrome:   chrome,
-                      onTap:    _toggleZen,
-                    ),
-                    const SizedBox(width: 2),
-                    _ModeButton(
-                      tooltip:  _fullscreen ? 'Exit Fullscreen' : 'Fullscreen',
-                      icon:     _fullscreen
-                          ? Icons.fullscreen_exit_rounded
-                          : Icons.fullscreen_rounded,
-                      isActive: _fullscreen,
-                      chrome:   chrome,
-                      onTap:    _toggleFullscreen,
-                    ),
-                    const SizedBox(width: 4),
-                  ],
+          // ── Error state ───────────────────────────────────────────────────
+          if (hook.workspace.error != null) {
+            return _ErrorView(
+              error:  hook.workspace.error!,
+              chrome: chrome,
+              syntax: syntax,
+              onRetry: () => hook.workspace.loadFromServer(),
+            );
+          }
+
+          // ── Normal editor UI ──────────────────────────────────────────────
+          return Column(
+            children: [
+
+              // ── Toolbar ──────────────────────────────────────────────────
+              ListenableBuilder(
+                listenable: _console,
+                builder: (_, __) => EditorToolbar(
+                  hook:        hook,
+                  console:     _console,
+                  onZoomIn:    () => setState(() =>
+                      _zoomDelta = (_zoomDelta + 1).clamp(-6.0, 14.0)),
+                  onZoomOut:   () => setState(() =>
+                      _zoomDelta = (_zoomDelta - 1).clamp(-6.0, 14.0)),
+                  onZoomReset: () => setState(() => _zoomDelta = 0),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _ModeButton(
+                        tooltip:  _zenMode ? 'Exit Zen Mode' : 'Zen Mode',
+                        icon:     _zenMode
+                            ? Icons.blur_off_rounded
+                            : Icons.center_focus_strong_rounded,
+                        isActive: _zenMode,
+                        chrome:   chrome,
+                        onTap:    _toggleZen,
+                      ),
+                      const SizedBox(width: 2),
+                      _ModeButton(
+                        tooltip:  _fullscreen ? 'Exit Fullscreen' : 'Fullscreen',
+                        icon:     _fullscreen
+                            ? Icons.fullscreen_exit_rounded
+                            : Icons.fullscreen_rounded,
+                        isActive: _fullscreen,
+                        chrome:   chrome,
+                        onTap:    _toggleFullscreen,
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                  ),
                 ),
               ),
-            ),
 
-            // ── Body ───────────────────────────────────────────────────────
-            Expanded(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
+              // ── Body ─────────────────────────────────────────────────────
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
 
-                  // ── Explorer ──────────────────────────────────────────────
-                  if (_explorerVisible && !_zenMode) ...[
-                    ValueListenableBuilder<double>(
-                      valueListenable: _explorerWidth,
-                      builder: (_, expW, __) => SizedBox(
-                        width: expW,
-                        child: Column(
-                          children: [
-                            _ExplorerTabSwitcher(
-                              showIndicators: _showIndicators,
-                              chrome:         chrome,
-                              syntax:         syntax,
-                              onToggle: (v) =>
-                                  setState(() => _showIndicators = v),
-                            ),
-                            Expanded(
-                              child: _showIndicators
-                                  ? IndicatorListView(
-                                      indicators:  _indicators,
-                                      permission:  hook.permission,
-                                      theme:       _theme,
-                                      selectedId:  _selectedIndicatorId,
-                                      onSelect:    _onIndicatorSelect,
-                                      onDelete:    _onIndicatorDelete,
-                                      onEdit:      _onIndicatorEdit,
-                                      onCreateNew: _onCreateNewIndicator,
-                                    )
-                                  : FileExplorerPanel(
-                                      hook:             hook,
-                                      width:            expW,
-                                      scrollController: _explorerScrollCtrl,
-                                    ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    ResizableDivider(
-                      axis:   Axis.vertical,
-                      chrome: chrome,
-                      onDrag: (delta) {
-                        _explorerWidth.value =
-                            (_explorerWidth.value + delta)
-                                .clamp(_minExplorer, _maxExplorer);
-                      },
-                    ),
-                  ],
-
-                  // ── Editor column ─────────────────────────────────────────
-                  Expanded(
-                    child: Column(
-                      children: [
-
-                        // ── Tab bar ──────────────────────────────────────────
-                        SizedBox(
-                          height: 36,
-                          child: Row(
+                    // ── Explorer ────────────────────────────────────────────
+                    if (_explorerVisible && !_zenMode) ...[
+                      ValueListenableBuilder<double>(
+                        valueListenable: _explorerWidth,
+                        builder: (_, expW, __) => SizedBox(
+                          width: expW,
+                          child: Column(
                             children: [
-                              if (!_zenMode)
-                                _ExplorerToggle(
-                                  isVisible: _explorerVisible,
-                                  chrome:    chrome,
-                                  onTap: () => setState(() =>
-                                      _explorerVisible = !_explorerVisible),
-                                ),
-                              Expanded(child: tab_bar_lib.EditorTabBar(hook: hook)),
+                              _ExplorerTabSwitcher(
+                                showIndicators: _showIndicators,
+                                chrome:         chrome,
+                                syntax:         syntax,
+                                onToggle: (v) =>
+                                    setState(() => _showIndicators = v),
+                              ),
+                              Expanded(
+                                child: _showIndicators
+                                    ? IndicatorListView(
+                                        indicators:  _indicators,
+                                        permission:  hook.permission,
+                                        theme:       _theme,
+                                        selectedId:  _selectedIndicatorId,
+                                        onSelect:    _onIndicatorSelect,
+                                        onDelete:    _onIndicatorDelete,
+                                        onEdit:      _onIndicatorEdit,
+                                        onCreateNew: _onCreateNewIndicator,
+                                      )
+                                    : FileExplorerPanel(
+                                        hook:             hook,
+                                        width:            expW,
+                                        scrollController: _explorerScrollCtrl,
+                                      ),
+                              ),
                             ],
                           ),
                         ),
+                      ),
+                      ResizableDivider(
+                        axis:   Axis.vertical,
+                        chrome: chrome,
+                        onDrag: (delta) {
+                          _explorerWidth.value =
+                              (_explorerWidth.value + delta)
+                                  .clamp(_minExplorer, _maxExplorer);
+                        },
+                      ),
+                    ],
 
-                        // ── Code editor ──────────────────────────────────────
-                        Expanded(
-                          child: CodeEditorWidget(
-                            hook:                   hook,
-                            gutterScrollController: _gutterScrollCtrl,
-                            codeScrollVController:  _codeScrollVCtrl,
-                            codeScrollHController:  _codeScrollHCtrl,
-                            onCodeChanged:          _onCodeChanged,
-                            onActiveLineChanged:    _onActiveLineChanged,
-                            zoomDelta:              _zoomDelta,
-                          ),
-                        ),
+                    // ── Editor column ───────────────────────────────────────
+                    Expanded(
+                      child: Column(
+                        children: [
 
-                        // ── Console ──────────────────────────────────────────
-                        if (!_zenMode) ...[
-                          ResizableDivider(
-                            axis:   Axis.horizontal,
-                            chrome: chrome,
-                            onDrag: (delta) {
-                              _consoleHeight.value =
-                                  (_consoleHeight.value - delta)
-                                      .clamp(_minConsole, _maxConsole);
-                            },
-                            child: _ConsoleToggleBar(
-                              chrome:          chrome,
-                              console:         _console,
-                              consoleExpanded: _consoleExpanded,
-                              onToggle: () => setState(() =>
-                                  _consoleExpanded = !_consoleExpanded),
+                          // ── Tab bar ────────────────────────────────────────
+                          SizedBox(
+                            height: 36,
+                            child: Row(
+                              children: [
+                                if (!_zenMode)
+                                  _ExplorerToggle(
+                                    isVisible: _explorerVisible,
+                                    chrome:    chrome,
+                                    onTap: () => setState(() =>
+                                        _explorerVisible = !_explorerVisible),
+                                  ),
+                                Expanded(child: tab_bar_lib.EditorTabBar(hook: hook)),
+                              ],
                             ),
                           ),
-                          if (_consoleExpanded)
-                            ValueListenableBuilder<double>(
-                              valueListenable: _consoleHeight,
-                              builder: (_, h, __) => SizedBox(
-                                height: h,
-                                child: OutputConsolePanel(
-                                  hook:             hook,
-                                  console:          _console,
-                                  scrollController: _consoleScrollCtrl,
-                                ),
+
+                          // ── Code editor ────────────────────────────────────
+                          Expanded(
+                            child: CodeEditorWidget(
+                              hook:                   hook,
+                              gutterScrollController: _gutterScrollCtrl,
+                              codeScrollVController:  _codeScrollVCtrl,
+                              codeScrollHController:  _codeScrollHCtrl,
+                              onCodeChanged:          _onCodeChanged,
+                              onActiveLineChanged:    _onActiveLineChanged,
+                              zoomDelta:              _zoomDelta,
+                            ),
+                          ),
+
+                          // ── Console ────────────────────────────────────────
+                          if (!_zenMode) ...[
+                            ResizableDivider(
+                              axis:   Axis.horizontal,
+                              chrome: chrome,
+                              onDrag: (delta) {
+                                _consoleHeight.value =
+                                    (_consoleHeight.value - delta)
+                                        .clamp(_minConsole, _maxConsole);
+                              },
+                              child: _ConsoleToggleBar(
+                                chrome:          chrome,
+                                console:         _console,
+                                consoleExpanded: _consoleExpanded,
+                                onToggle: () => setState(() =>
+                                    _consoleExpanded = !_consoleExpanded),
                               ),
                             ),
+                            if (_consoleExpanded)
+                              ValueListenableBuilder<double>(
+                                valueListenable: _consoleHeight,
+                                builder: (_, h, __) => SizedBox(
+                                  height: h,
+                                  child: OutputConsolePanel(
+                                    hook:             hook,
+                                    console:          _console,
+                                    scrollController: _consoleScrollCtrl,
+                                  ),
+                                ),
+                              ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
-        ),
+            ],
+          );
+        },
       ),
     );
 
@@ -674,6 +724,94 @@ class _TradingViewCodeEditorScreenState
 
     return editorBody;
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  _LoadingView
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _LoadingView extends StatelessWidget {
+  final EditorChromeColors chrome;
+  const _LoadingView({required this.chrome});
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 24, height: 24,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color:       chrome.cursorColor,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Loading workspace...',
+          style: TextStyle(
+            color:    chrome.lineNumberDefault,
+            fontSize: 13,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  _ErrorView
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ErrorView extends StatelessWidget {
+  final String             error;
+  final EditorChromeColors chrome;
+  final EditorSyntaxColors syntax;
+  final VoidCallback       onRetry;
+
+  const _ErrorView({
+    required this.error,
+    required this.chrome,
+    required this.syntax,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.error_outline_rounded,
+              size: 32, color: chrome.consoleTextError),
+          const SizedBox(height: 12),
+          Text(
+            'Failed to load workspace',
+            style: TextStyle(
+              color:      syntax.plain,
+              fontSize:   14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            error,
+            style:     TextStyle(color: syntax.comment, fontSize: 11),
+            textAlign: TextAlign.center,
+            maxLines:  3,
+            overflow:  TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 16),
+          TextButton.icon(
+            onPressed: onRetry,
+            icon:  Icon(Icons.refresh_rounded, size: 16, color: chrome.cursorColor),
+            label: Text('Retry', style: TextStyle(color: chrome.cursorColor)),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1,11 +1,21 @@
 // =============================================================================
 // tradingview_hook.dart
-// FIX: _TvApi sekarang menggunakan AuthStorage.get/post/patch/delete
-//      sebagai pengganti raw http.* calls.
-//      - Tidak ada lagi hardcoded URL / baseUrl problem
-//      - Auto token injection + auto refresh 401 sudah ditangani AuthStorage
-//      - delete helper ditambahkan langsung via http karena AuthStorage
-//        belum expose delete() — tapi tetap pakai kBaseUrl dari auth_storage.
+//
+// SCOPE FILE INI:
+//   - WorkspaceState       : state management folder & file (CRUD + server sync)
+//   - TabState             : state management tab editor
+//   - EditorThemeHookState : state management tema editor
+//   - TradingViewHook      : facade / backward-compat hook
+//
+// TIDAK ADA DI SINI (dipindah ke tradingview_pages.dart):
+//   - EditorPermission
+//   - IsolatedWorkspaceState
+//   - IsolatedTradingViewHook
+//   - IsolatedHookProvider
+//
+// Alasan: semua class "Isolated" bergantung pada EditorPermission yang
+// terkait logika UI/page, bukan logika data mentah. Memisahkannya di
+// pages.dart menghilangkan circular import dan duplicate-export error.
 // =============================================================================
 
 import 'dart:convert';
@@ -19,15 +29,9 @@ import '../utils/auth_storage.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  API Client helper
-//  Semua request sekarang lewat AuthStorage agar:
-//    1. Base URL selalu dari kBaseUrl (satu sumber kebenaran)
-//    2. Bearer token otomatis di-inject
-//    3. Auto-refresh kalau dapat 401
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _TvApi {
-  // ── DELETE helper (AuthStorage belum punya, jadi kita buat sendiri
-  //    tapi tetap pakai kBaseUrl + token dari AuthStorage) ──────────────────
   static Future<http.Response> _delete(String path) async {
     final token = await AuthStorage.getToken();
     final uri   = Uri.parse('$kBaseUrl$path');
@@ -39,7 +43,6 @@ class _TvApi {
       },
     );
 
-    // Auto-refresh kalau 401
     if (response.statusCode == 401) {
       final refreshed = await AuthStorage.refreshAccessToken();
       if (refreshed) {
@@ -56,15 +59,11 @@ class _TvApi {
     return response;
   }
 
-  // ── Workspace ─────────────────────────────────────────────────────────────
-
   static Future<Map<String, dynamic>> getWorkspace() async {
     final res = await AuthStorage.get('/tradingview/workspace');
     _checkStatus(res);
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
-
-  // ── Folder ────────────────────────────────────────────────────────────────
 
   static Future<Map<String, dynamic>> createFolder({
     required String name,
@@ -98,8 +97,6 @@ class _TvApi {
     final res = await _delete('/tradingview/workspace/folders/$folderId');
     _checkStatus(res);
   }
-
-  // ── File ──────────────────────────────────────────────────────────────────
 
   static Future<Map<String, dynamic>> createFile({
     required String name,
@@ -145,8 +142,6 @@ class _TvApi {
     final res = await _delete('/tradingview/workspace/files/$fileId');
     _checkStatus(res);
   }
-
-  // ── Status check ─────────────────────────────────────────────────────────
 
   static void _checkStatus(http.Response res) {
     if (res.statusCode >= 400) {
@@ -233,9 +228,9 @@ class WorkspaceState extends ChangeNotifier {
   }
 
   List<String> _buildFolderSegments(String folderId) {
-    final segments = <String>[];
-    String? current = folderId;
-    var safetyLimit = 20;
+    final segments    = <String>[];
+    String? current   = folderId;
+    var     safetyLimit = 20;
     while (current != null && safetyLimit-- > 0) {
       final folder = findFolder(current);
       if (folder == null) break;
@@ -294,9 +289,30 @@ class WorkspaceState extends ChangeNotifier {
     );
   }
 
+  /// Inject data lokal tanpa hit network.
+  /// Dipakai oleh IsolatedWorkspaceState._syncRootsToBase() agar
+  /// buildFolderTree() bisa menemukan data dari local _roots.
+  void loadLocalData({
+    required List<ScriptFolder> folders,
+    required List<ScriptFile>   files,
+  }) {
+    _folders
+      ..clear()
+      ..addAll(folders);
+    _files
+      ..clear()
+      ..addAll(files);
+
+    for (final f in _folders) {
+      _syncFolderFiles(f.id);
+      _syncFolderChildren(f.id);
+    }
+    notifyListeners();
+  }
+
   Future<void> loadFromServer() async {
     _isLoading = true;
-    _error = null;
+    _error     = null;
     notifyListeners();
 
     try {
@@ -317,6 +333,7 @@ class WorkspaceState extends ChangeNotifier {
       }
     } catch (e) {
       _error = e.toString();
+      rethrow;
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -364,7 +381,7 @@ class WorkspaceState extends ChangeNotifier {
 
   Future<void> addRootFolder(String name) async {
     final tempId = _tempId();
-    final temp = ScriptFolder(id: tempId, name: name, isExpanded: true);
+    final temp   = ScriptFolder(id: tempId, name: name, isExpanded: true);
     _folders.add(temp);
     notifyListeners();
 
@@ -553,9 +570,9 @@ class TabState extends ChangeNotifier {
   final List<ScriptFile> _openTabs = [];
   ScriptFile? _activeFile;
 
-  List<ScriptFile> get openTabs    => List.unmodifiable(_openTabs);
-  ScriptFile?      get activeFile  => _activeFile;
-  bool             get hasOpenTab  => _openTabs.isNotEmpty;
+  List<ScriptFile> get openTabs          => List.unmodifiable(_openTabs);
+  ScriptFile?      get activeFile        => _activeFile;
+  bool             get hasOpenTab        => _openTabs.isNotEmpty;
   bool             get hasUnsavedChanges => _openTabs.any((t) => t.isModified);
 
   int get activeIndex => _activeFile == null
@@ -639,18 +656,18 @@ class EditorThemeHookState extends ChangeNotifier {
   EditorTypography    get typography   => _theme.typography;
   EditorThemePreset   get activePreset => _theme.activePreset;
 
-  void applyTheme(EditorThemeState newTheme)    { _theme = newTheme;                          notifyListeners(); }
+  void applyTheme(EditorThemeState newTheme)    { _theme = newTheme;                            notifyListeners(); }
   void applyPreset(EditorThemePreset preset)    { _theme = EditorThemeState.fromPreset(preset); notifyListeners(); }
-  void updateSyntax(EditorSyntaxColors syntax)  { _theme = _theme.copyWith(syntax: syntax);   notifyListeners(); }
-  void updateChrome(EditorChromeColors chrome)  { _theme = _theme.copyWith(chrome: chrome);   notifyListeners(); }
-  void updateTypography(EditorTypography typo)  { _theme = _theme.copyWith(typography: typo); notifyListeners(); }
-  void updateBackgroundOpacity(double opacity)  { _theme = _theme.copyWith(backgroundOpacity: opacity);        notifyListeners(); }
-  void updateBackgroundImage(String? path)      { _theme = _theme.copyWith(backgroundImagePath: path);         notifyListeners(); }
-  void updateBackgroundGradientEnd(Color color) { _theme = _theme.copyWith(backgroundGradientEnd: color);      notifyListeners(); }
+  void updateSyntax(EditorSyntaxColors syntax)  { _theme = _theme.copyWith(syntax: syntax);     notifyListeners(); }
+  void updateChrome(EditorChromeColors chrome)  { _theme = _theme.copyWith(chrome: chrome);     notifyListeners(); }
+  void updateTypography(EditorTypography typo)  { _theme = _theme.copyWith(typography: typo);   notifyListeners(); }
+  void updateBackgroundOpacity(double opacity)  { _theme = _theme.copyWith(backgroundOpacity: opacity);            notifyListeners(); }
+  void updateBackgroundImage(String? path)      { _theme = _theme.copyWith(backgroundImagePath: path);             notifyListeners(); }
+  void updateBackgroundGradientEnd(Color color) { _theme = _theme.copyWith(backgroundGradientEnd: color);          notifyListeners(); }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  TradingViewHook — facade
+//  TradingViewHook — backward-compat facade
 // ─────────────────────────────────────────────────────────────────────────────
 
 class TradingViewHook {
@@ -735,10 +752,9 @@ class TradingViewHook {
   Future<void> renameFile(String fileId, String newName) async {
     try {
       await workspace.renameFile(fileId, newName);
-      final idx = tabs.openTabs.indexWhere((t) => t.id == fileId);
-      if (idx != -1) {
-        final updated = workspace.findFile(fileId);
-        if (updated != null) tabs.openFile(updated);
+      final updated = workspace.findFile(fileId);
+      if (updated != null && tabs.openTabs.any((t) => t.id == fileId)) {
+        tabs.openFile(updated);
       }
     } catch (e) {
       onError?.call('Gagal rename file: $e');
@@ -769,28 +785,4 @@ class TradingViewHook {
     tabs.dispose();
     editorTheme.dispose();
   }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  TradingViewHookProvider
-// ─────────────────────────────────────────────────────────────────────────────
-
-class TradingViewHookProvider extends InheritedWidget {
-  const TradingViewHookProvider({
-    super.key,
-    required this.hook,
-    required super.child,
-  });
-
-  final TradingViewHook hook;
-
-  static TradingViewHook of(BuildContext context) {
-    final provider =
-        context.dependOnInheritedWidgetOfExactType<TradingViewHookProvider>();
-    assert(provider != null, 'TradingViewHookProvider not found in widget tree');
-    return provider!.hook;
-  }
-
-  @override
-  bool updateShouldNotify(TradingViewHookProvider old) => old.hook != hook;
 }

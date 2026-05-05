@@ -1,6 +1,23 @@
 // =============================================================================
 // tradingview_pages.dart
 // Path: frontend/lib/pages/tradingview_pages.dart
+//
+// SCOPE FILE INI:
+//   - EditorPermission         : hak akses user di editor
+//   - IsolatedWorkspaceState   : extends WorkspaceState, tambah permission logic
+//   - IsolatedTradingViewHook  : hook utama untuk editor page
+//   - IsolatedHookProvider     : InheritedWidget untuk expose hook ke subtree
+//   - TradingViewPages         : StatefulWidget entry point
+//   - Semua widget UI editor   : shell, toolbar, editor, gutter, dialog, dll
+//
+// TIDAK ADA DI SINI:
+//   - WorkspaceState, TabState, EditorThemeHookState, TradingViewHook
+//     → semua ada di tradingview_hook.dart
+//
+// RULE IMPORT:
+//   File lain yang butuh EditorPermission / IsolatedTradingViewHook /
+//   IsolatedHookProvider → cukup import file INI saja.
+//   Jangan import tradingview_hook.dart sekaligus di file yang sama.
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -34,6 +51,7 @@ class EditorPermission {
   bool get isAdmin     => role == UserRole.admin;
   bool get isExclusive => role == UserRole.exclusive;
 
+  /// Semua file/folder shared milik admin menggunakan ID ini sebagai prefix.
   static const String sharedOwnerId = 'admin_shared';
 
   bool canSeeFile({required String ownerId}) {
@@ -65,11 +83,37 @@ class IsolatedWorkspaceState extends WorkspaceState {
 
   IsolatedWorkspaceState({required this.permission}) : super() {
     _roots = _buildIsolatedWorkspace(permission);
+    // Sync _roots ke _folders & _files milik WorkspaceState (parent)
+    // agar buildFolderTree() bisa menemukan data tanpa perlu server.
+    _syncRootsToBase();
   }
 
   List<ScriptFolder> get roots => _roots;
 
-  // ── Build initial workspace ───────────────────────────────────────────────
+  // ── Sync lokal _roots ke internal list WorkspaceState ────────────────────
+
+  void _syncRootsToBase() {
+    final allFolders = <ScriptFolder>[];
+    final allFiles   = <ScriptFile>[];
+    _collectAll(_roots, allFolders, allFiles);
+    loadLocalData(folders: allFolders, files: allFiles);
+  }
+
+  void _collectAll(
+    List<ScriptFolder>  folders,
+    List<ScriptFolder>  outFolders,
+    List<ScriptFile>    outFiles,
+  ) {
+    for (final folder in folders) {
+      outFolders.add(folder);
+      outFiles.addAll(folder.files);
+      if (folder.subFolders.isNotEmpty) {
+        _collectAll(folder.subFolders, outFolders, outFiles);
+      }
+    }
+  }
+
+  // ── Build initial workspace (local fallback) ──────────────────────────────
 
   static List<ScriptFolder> _buildIsolatedWorkspace(EditorPermission perm) {
     final uid    = perm.userId;
@@ -82,22 +126,23 @@ class IsolatedWorkspaceState extends WorkspaceState {
       isExpanded: true,
       files: [
         ScriptFile(
-          createdAt: DateTime.now(), updatedAt: DateTime.now(),
-          id:       '${uid}_main',
-          name:     'main.py',
+          createdAt:      DateTime.now(),
+          updatedAt:      DateTime.now(),
+          id:             '${uid}_main',
+          name:           'main.py',
           parentFolderId: rootId,
-          content:  _starterScript(perm),
+          content:        _starterScript(perm),
         ),
       ],
       subFolders: [
         ScriptFolder(
-          id:       '${uid}_strategies',
-          name:     'strategies',
+          id:             '${uid}_strategies',
+          name:           'strategies',
           parentFolderId: rootId,
         ),
         ScriptFolder(
-          id:       '${uid}_indicators',
-          name:     'indicators',
+          id:             '${uid}_indicators',
+          name:           'indicators',
           parentFolderId: rootId,
         ),
       ],
@@ -109,18 +154,20 @@ class IsolatedWorkspaceState extends WorkspaceState {
       isExpanded: false,
       files: [
         ScriptFile(
-          createdAt: DateTime.now(), updatedAt: DateTime.now(),
-          id:       '${shared}_rsi',
-          name:     'rsi_template.py',
+          createdAt:      DateTime.now(),
+          updatedAt:      DateTime.now(),
+          id:             '${shared}_rsi',
+          name:           'rsi_template.py',
           parentFolderId: 'root_$shared',
-          content:  _rsiTemplate(),
+          content:        _rsiTemplate(),
         ),
         ScriptFile(
-          createdAt: DateTime.now(), updatedAt: DateTime.now(),
-          id:       '${shared}_ma',
-          name:     'ma_crossover.py',
+          createdAt:      DateTime.now(),
+          updatedAt:      DateTime.now(),
+          id:             '${shared}_ma',
+          name:           'ma_crossover.py',
           parentFolderId: 'root_$shared',
-          content:  _maCrossoverTemplate(),
+          content:        _maCrossoverTemplate(),
         ),
       ],
     );
@@ -143,18 +190,17 @@ class IsolatedWorkspaceState extends WorkspaceState {
 
   bool isSharedFile(ScriptFile file) =>
       file.id.contains(EditorPermission.sharedOwnerId) ||
-      file.parentId.contains(EditorPermission.sharedOwnerId);
+      (file.parentFolderId?.contains(EditorPermission.sharedOwnerId) ?? false);
 
   bool isOwnFile(ScriptFile file) =>
       file.id.contains(permission.userId) ||
-      file.parentId.contains(permission.userId);
+      (file.parentFolderId?.contains(permission.userId) ?? false);
 
   String resolveOwnerId(ScriptFile file) =>
       isSharedFile(file) ? EditorPermission.sharedOwnerId : permission.userId;
 
   // ── Guarded CRUD ──────────────────────────────────────────────────────────
 
-  // FIX: addFileGuarded is now async to match the async addFile() in WorkspaceState.
   Future<ScriptFile?> addFileGuarded(String parentFolderId, String name) async {
     if (parentFolderId.contains(EditorPermission.sharedOwnerId) &&
         !permission.isAdmin) return null;
@@ -169,7 +215,6 @@ class IsolatedWorkspaceState extends WorkspaceState {
     return true;
   }
 
-  // FIX: deleteFileGuarded is now async to match the async deleteFile() in WorkspaceState.
   Future<bool> deleteFileGuarded(String fileId) async {
     final file = findFile(fileId);
     if (file == null) return false;
@@ -178,13 +223,32 @@ class IsolatedWorkspaceState extends WorkspaceState {
     return true;
   }
 
-  // FIX: renameFileGuarded is now async to match the async renameFile() in WorkspaceState.
   Future<bool> renameFileGuarded(String fileId, String newName) async {
     final file = findFile(fileId);
     if (file == null) return false;
     if (!permission.canRename(ownerId: resolveOwnerId(file))) return false;
     await renameFile(fileId, newName);
     return true;
+  }
+
+  // ── Override loadFromServer: merge server data + rebuild _roots ───────────
+
+  @override
+  Future<void> loadFromServer() async {
+    try {
+      await super.loadFromServer();
+      // Rebuild _roots dari data server yang sudah masuk ke _folders/_files
+      _roots = buildFolderTree();
+      if (_roots.isEmpty) {
+        // Server kosong → fallback ke local
+        _roots = _buildIsolatedWorkspace(permission);
+        _syncRootsToBase();
+      }
+    } catch (_) {
+      // Gagal konek server → _roots lokal yang sudah di-sync di constructor
+      // tetap valid. Re-throw agar FutureBuilder bisa tampilkan banner error.
+      rethrow;
+    }
   }
 
   // ── Template scripts ──────────────────────────────────────────────────────
@@ -283,18 +347,35 @@ class IsolatedTradingViewHook {
   IsolatedTradingViewHook({required this.permission})
       : workspace   = IsolatedWorkspaceState(permission: permission),
         tabs        = TabState(),
-        editorTheme = EditorThemeHookState() {
+        editorTheme = EditorThemeHookState();
+
+  // ── init(): coba server dulu, fallback ke local ───────────────────────────
+
+  Future<void> init() async {
+    try {
+      await workspace.loadFromServer();
+    } catch (_) {
+      // Server gagal — data lokal sudah di-sync di constructor.
+    }
     _openDefaultFile();
   }
 
   void _openDefaultFile() {
     final visible = workspace.visibleRoots;
-    if (visible.isEmpty) return;
-    final myRoot = visible.firstWhere(
-      (r) => r.id.contains(permission.userId),
-      orElse: () => visible.first,
-    );
-    if (myRoot.files.isNotEmpty) tabs.openFile(myRoot.files.first);
+    if (visible.isEmpty) {
+      final tree = workspace.buildFolderTree();
+      if (tree.isNotEmpty && tree.first.files.isNotEmpty) {
+        tabs.openFile(tree.first.files.first);
+      }
+      return;
+    }
+    try {
+      final myRoot = visible.firstWhere(
+        (r) => r.id.contains(permission.userId),
+        orElse: () => visible.first,
+      );
+      if (myRoot.files.isNotEmpty) tabs.openFile(myRoot.files.first);
+    } catch (_) {}
   }
 
   void openFile(ScriptFile file) {
@@ -326,8 +407,7 @@ class IsolatedTradingViewHook {
   bool get canEditActive {
     final active = tabs.activeFile;
     if (active == null) return false;
-    final ownerId = workspace.resolveOwnerId(active);
-    return permission.canEdit(ownerId: ownerId);
+    return permission.canEdit(ownerId: workspace.resolveOwnerId(active));
   }
 
   bool get activeIsShared {
@@ -357,10 +437,21 @@ class IsolatedHookProvider extends InheritedWidget {
   final IsolatedTradingViewHook hook;
 
   static IsolatedTradingViewHook of(BuildContext context) {
-    final p = context
-        .dependOnInheritedWidgetOfExactType<IsolatedHookProvider>();
-    assert(p != null, 'IsolatedHookProvider not found in widget tree');
+    final p =
+        context.dependOnInheritedWidgetOfExactType<IsolatedHookProvider>();
+    assert(
+      p != null,
+      'IsolatedHookProvider not found in widget tree.\n'
+      'Pastikan widget dibungkus dengan IsolatedHookProvider.',
+    );
     return p!.hook;
+  }
+
+  /// Nullable variant — tidak throw jika tidak ditemukan.
+  static IsolatedTradingViewHook? maybeOf(BuildContext context) {
+    return context
+        .dependOnInheritedWidgetOfExactType<IsolatedHookProvider>()
+        ?.hook;
   }
 
   @override
@@ -388,21 +479,24 @@ class TradingViewPages extends StatefulWidget {
 class _TradingViewPagesState extends State<TradingViewPages> {
   late final EditorPermission        _permission;
   late final IsolatedTradingViewHook _hook;
-  bool _hookReady = false;
+  late final Future<void>            _initFuture;
 
   @override
   void initState() {
     super.initState();
     _permission = EditorPermission.fromToken(widget.token, widget.userId);
+
     if (_permission.canEnterEditor) {
-      _hook      = IsolatedTradingViewHook(permission: _permission);
-      _hookReady = true;
+      _hook       = IsolatedTradingViewHook(permission: _permission);
+      _initFuture = _hook.init();
+    } else {
+      _initFuture = Future.value();
     }
   }
 
   @override
   void dispose() {
-    if (_hookReady) _hook.dispose();
+    if (_permission.canEnterEditor) _hook.dispose();
     super.dispose();
   }
 
@@ -412,11 +506,56 @@ class _TradingViewPagesState extends State<TradingViewPages> {
       return LockedScreen(token: widget.token);
     }
 
-    return IsolatedHookProvider(
-      hook:  _hook,
-      child: _TradingViewShell(
-        permission: _permission,
-        hook:       _hook,
+    return FutureBuilder<void>(
+      future: _initFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return _LoadingScreen(permission: _permission);
+        }
+
+        return IsolatedHookProvider(
+          hook:  _hook,
+          child: _TradingViewShell(
+            permission:  _permission,
+            hook:        _hook,
+            serverError: snapshot.hasError ? snapshot.error.toString() : null,
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  _LoadingScreen
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _LoadingScreen extends StatelessWidget {
+  final EditorPermission permission;
+  const _LoadingScreen({required this.permission});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: Color(0xFF0D0D0D),
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 22, height: 22,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color:       Color(0xFF00E5FF),
+              ),
+            ),
+            SizedBox(height: 12),
+            Text(
+              'Loading workspace...',
+              style: TextStyle(color: Color(0xFF6E6E6E), fontSize: 12),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -429,8 +568,13 @@ class _TradingViewPagesState extends State<TradingViewPages> {
 class _TradingViewShell extends StatelessWidget {
   final EditorPermission        permission;
   final IsolatedTradingViewHook hook;
+  final String?                 serverError;
 
-  const _TradingViewShell({required this.permission, required this.hook});
+  const _TradingViewShell({
+    required this.permission,
+    required this.hook,
+    this.serverError,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -448,6 +592,14 @@ class _TradingViewShell extends StatelessWidget {
             child: Column(
               children: [
                 _EditorTopBar(permission: permission, hook: hook),
+
+                if (serverError != null)
+                  _ServerErrorBanner(
+                    error:  serverError!,
+                    chrome: chrome,
+                    hook:   hook,
+                  ),
+
                 Expanded(
                   child: _EditorReadyState(
                     permission: permission,
@@ -459,6 +611,59 @@ class _TradingViewShell extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  _ServerErrorBanner
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ServerErrorBanner extends StatelessWidget {
+  final String                  error;
+  final EditorChromeColors      chrome;
+  final IsolatedTradingViewHook hook;
+
+  const _ServerErrorBanner({
+    required this.error,
+    required this.chrome,
+    required this.hook,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width:   double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      color:   chrome.consoleTextError.withOpacity(0.08),
+      child: Row(
+        children: [
+          Icon(Icons.cloud_off_rounded,
+              size: 13, color: chrome.consoleTextError),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              'Offline mode — showing local data. ($error)',
+              style: TextStyle(
+                color:    chrome.consoleTextError.withOpacity(0.8),
+                fontSize: 11,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          GestureDetector(
+            onTap: () => hook.workspace.loadFromServer(),
+            child: Text(
+              'Retry',
+              style: TextStyle(
+                color:      chrome.cursorColor,
+                fontSize:   11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -534,7 +739,8 @@ class _EditorTopBar extends StatelessWidget {
               ),
             Text(
               active.name,
-              style: TextStyle(color: syntax.plain.withOpacity(0.65), fontSize: 12),
+              style: TextStyle(
+                  color: syntax.plain.withOpacity(0.65), fontSize: 12),
             ),
             if (hook.activeIsShared && !permission.isAdmin) ...[
               const SizedBox(width: 6),
@@ -659,7 +865,8 @@ class _UnsavedDialog extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       title: Text(
         'Unsaved Changes',
-        style: TextStyle(color: syntax.plain, fontSize: 16, fontWeight: FontWeight.w700),
+        style: TextStyle(
+            color: syntax.plain, fontSize: 16, fontWeight: FontWeight.w700),
       ),
       content: Text(
         'Ada perubahan yang belum disimpan.\nKeluar tanpa save?',
@@ -675,7 +882,8 @@ class _UnsavedDialog extends StatelessWidget {
             Navigator.pop(context);
             Navigator.of(context).pop();
           },
-          child: Text('Keluar', style: TextStyle(color: chrome.consoleTextError)),
+          child: Text('Keluar',
+              style: TextStyle(color: chrome.consoleTextError)),
         ),
         TextButton(
           onPressed: () {
@@ -683,7 +891,8 @@ class _UnsavedDialog extends StatelessWidget {
             Navigator.pop(context);
             Navigator.of(context).pop();
           },
-          child: Text('Save & Keluar', style: TextStyle(color: chrome.cursorColor)),
+          child: Text('Save & Keluar',
+              style: TextStyle(color: chrome.cursorColor)),
         ),
       ],
     );
@@ -691,7 +900,7 @@ class _UnsavedDialog extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Placeholder
+//  _EditorReadyState
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _EditorReadyState extends StatelessWidget {
@@ -713,7 +922,8 @@ class _EditorReadyState extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.code_rounded, size: 52, color: syntax.keyword.withOpacity(0.4)),
+              Icon(Icons.code_rounded,
+                  size: 52, color: syntax.keyword.withOpacity(0.4)),
               const SizedBox(height: 16),
               Text(
                 'No file open',
@@ -759,10 +969,10 @@ class _EditorReadyState extends StatelessWidget {
           ),
         Expanded(
           child: _EditableOrReadOnly(
-            file:     activeFile,
-            hook:     hook,
-            theme:    theme,
-            canEdit:  canEdit,
+            file:    activeFile,
+            hook:    hook,
+            theme:   theme,
+            canEdit: canEdit,
           ),
         ),
       ],
@@ -840,17 +1050,18 @@ class _EditableOrReadOnlyState extends State<_EditableOrReadOnly> {
                 scrollDirection: Axis.horizontal,
                 child: IntrinsicWidth(
                   child: TextField(
-                    controller:     _ctrl,
-                    maxLines:       null,
-                    expands:        false,
-                    keyboardType:   TextInputType.multiline,
-                    style: typo.baseStyle.copyWith(color: widget.theme.syntax.plain),
-                    cursorColor:    chrome.cursorColor,
+                    controller:   _ctrl,
+                    maxLines:     null,
+                    expands:      false,
+                    keyboardType: TextInputType.multiline,
+                    style: typo.baseStyle.copyWith(
+                        color: widget.theme.syntax.plain),
+                    cursorColor: chrome.cursorColor,
                     decoration: const InputDecoration(
-                      border:          InputBorder.none,
-                      contentPadding:  EdgeInsets.symmetric(
+                      border:         InputBorder.none,
+                      contentPadding: EdgeInsets.symmetric(
                           horizontal: 12, vertical: 12),
-                      isDense:         true,
+                      isDense:        true,
                     ),
                     onChanged: widget.hook.onCodeChanged,
                   ),
@@ -893,8 +1104,7 @@ class _LiveLineGutterState extends State<_LiveLineGutter> {
     if (c != _lineCount) setState(() => _lineCount = c);
   }
 
-  int _count(String t) =>
-      t.isEmpty ? 1 : '\n'.allMatches(t).length + 1;
+  int _count(String t) => t.isEmpty ? 1 : '\n'.allMatches(t).length + 1;
 
   @override
   void dispose() {
@@ -914,18 +1124,21 @@ class _LiveLineGutterState extends State<_LiveLineGutter> {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
-        children: List.generate(_lineCount, (i) => SizedBox(
-          height: typo.fontSize * typo.lineHeight,
-          child: Text(
-            '${i + 1}',
-            style: TextStyle(
-              fontFamily: typo.fontFamily,
-              fontSize:   typo.fontSize,
-              height:     typo.lineHeight,
-              color:      chrome.lineNumberDefault,
+        children: List.generate(
+          _lineCount,
+          (i) => SizedBox(
+            height: typo.fontSize * typo.lineHeight,
+            child: Text(
+              '${i + 1}',
+              style: TextStyle(
+                fontFamily: typo.fontFamily,
+                fontSize:   typo.fontSize,
+                height:     typo.lineHeight,
+                color:      chrome.lineNumberDefault,
+              ),
             ),
           ),
-        )),
+        ),
       ),
     );
   }

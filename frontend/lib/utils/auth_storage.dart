@@ -14,7 +14,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 // Ganti ke production URL kalau deploy
-const String kBaseUrl = 'http://172.18.0.1:8000';
+const String kBaseUrl = 'http://10.0.2.2:8080';
 
 class AuthStorage {
   static const _keyToken        = 'access_token';
