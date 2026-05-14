@@ -1,0 +1,16 @@
+workflows:
+  flutter-app:
+    name: Flutter App
+    environment:
+      flutter: stable
+
+    scripts:
+      - name: Set working directory
+        script: |
+          cd frontend
+          flutter pub get
+
+      - name: Build APK
+        script: |
+          cd frontend
+          flutter build apk
