@@ -3,7 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+// Local Testing //
 const String kBaseUrl = 'http://localhost:8080';
+
+// Ngrok or Any External Testing URL //
+const String kBaseUrl = "https://disdain-decathlon-probe.ngrok-free.app";
 
 class AuthStorage {
   static const _keyToken        = 'access_token';
