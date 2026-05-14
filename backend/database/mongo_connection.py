@@ -35,6 +35,9 @@ class MongoConnection:
         self.collection_market_outlook_exclusive = self.db["market_outlook_exclusive"]
         self.collection_research_coin_exclusive = self.db["research_coin_exclusive"]
         self.collection_street_view_exclusive = self.db["street_view_exclusive"]
-
+        self.collection_tv_folders    = self.db["tv_folders"]
+        self.collection_tv_files      = self.db["tv_files"]
+        self.collection_tv_indicators = self.db["tv_indicators"]
+        
     def close(self):
         pass  # jangan close global client di request-level

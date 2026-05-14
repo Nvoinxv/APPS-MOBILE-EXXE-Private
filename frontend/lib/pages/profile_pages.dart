@@ -38,12 +38,11 @@ class _ProfilePageState extends State<ProfilePage>
   File?   _profileImageFile;
   String? _profileImageUrl;
 
-  bool _isLoadingProfile  = true;  // ← loading saat fetch dari API
+  bool _isLoadingProfile  = true;
   bool _isUploadingImage  = false;
   bool _isEditing         = false;
   bool _isSaving          = false;
 
-  // ─── Palette ──────────────────────────────────────────────────────────────
   static const _bg          = Color(0xFF0A0A0A);
   static const _surface     = Color(0xFF0F1A0F);
   static const _card        = Color(0xFF111C11);
@@ -58,9 +57,6 @@ class _ProfilePageState extends State<ProfilePage>
   @override
   void initState() {
     super.initState();
-
-    // Isi default dulu dari widget (data yang dikirim dari HomeScreen)
-    // supaya UI tidak kosong saat fetch API masih berjalan
     _nameController.text = widget.username;
 
     _fadeController  = AnimationController(vsync: this, duration: const Duration(milliseconds: 700));
@@ -74,8 +70,6 @@ class _ProfilePageState extends State<ProfilePage>
 
     _fadeController.forward();
     _slideController.forward();
-
-    // ✅ Fetch dari API saat halaman pertama kali dibuka
     _fetchProfileFromServer();
   }
 
@@ -89,35 +83,22 @@ class _ProfilePageState extends State<ProfilePage>
     super.dispose();
   }
 
-  // ─── FETCH dari GET /profile (source of truth) ────────────────────────────
-  // Ini fix utama: sebelumnya hanya baca SharedPreferences yang bisa stale.
-  // Sekarang langsung ambil dari DB via API setiap kali halaman dibuka.
   Future<void> _fetchProfileFromServer() async {
     setState(() => _isLoadingProfile = true);
-
-    // Step 1: Coba ambil dari server (GET /profile)
-    final serverData = await getProfileHook(token: widget.token);
-
+    // FIX: hapus token: widget.token — token diambil otomatis dari storage
+    final serverData = await getProfileHook();
     if (serverData != null) {
-      // ✅ Data server berhasil didapat — pakai ini sebagai source of truth
       _applyProfileData(serverData);
     } else {
-      // Step 2: Fallback ke SharedPreferences kalau server tidak bisa dicapai
-      // (misal offline atau token expired)
       final localData = await SendOtpHook.getUserData();
-      if (localData != null) {
-        _applyProfileData(localData);
-      }
+      if (localData != null) _applyProfileData(localData);
     }
-
     if (mounted) setState(() => _isLoadingProfile = false);
   }
 
-  // ─── Apply data profile ke semua controller dan state ─────────────────────
   void _applyProfileData(Map<String, dynamic> data) {
     if (!mounted) return;
     setState(() {
-      // display_name dari DB, fallback ke username dari widget
       _nameController.text      = (data['display_name'] ?? '').toString().trim().isNotEmpty
           ? data['display_name'].toString()
           : widget.username;
@@ -127,9 +108,9 @@ class _ProfilePageState extends State<ProfilePage>
     });
   }
 
-  // ─── Reset ke data server saat user tekan Cancel ──────────────────────────
   Future<void> _resetToServerData() async {
-    final serverData = await getProfileHook(token: widget.token);
+    // FIX: hapus token: widget.token
+    final serverData = await getProfileHook();
     if (serverData != null) {
       _applyProfileData(serverData);
     } else {
@@ -138,7 +119,6 @@ class _ProfilePageState extends State<ProfilePage>
     }
   }
 
-  // ─── Pilih foto → langsung upload ke backend ──────────────────────────────
   Future<void> _pickAndUploadImage() async {
     if (!_isEditing) return;
     HapticFeedback.lightImpact();
@@ -151,15 +131,14 @@ class _ProfilePageState extends State<ProfilePage>
     if (picked == null) return;
 
     final file = File(picked.path);
-
     setState(() {
       _profileImageFile = file;
       _isUploadingImage = true;
     });
 
     try {
+      // FIX: hapus token: widget.token, tambah imageFile: file yang hilang
       final imageUrl = await uploadProfileImageHook(
-        token:     widget.token,
         imageFile: file,
       );
       setState(() {
@@ -176,26 +155,20 @@ class _ProfilePageState extends State<ProfilePage>
     }
   }
 
-  // ─── Save profile teks ke backend ─────────────────────────────────────────
   Future<void> _saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
-
     HapticFeedback.mediumImpact();
     setState(() => _isSaving = true);
-
     try {
       await updateProfileHook(
-        token:       widget.token,
         displayName: _nameController.text.trim(),
         description: _descController.text.trim(),
         birthYear:   _birthYearController.text.trim(),
       );
-
       setState(() {
         _isSaving  = false;
         _isEditing = false;
       });
-
       _showSnackBar('Profile berhasil diperbarui');
     } catch (e) {
       setState(() => _isSaving = false);
@@ -239,10 +212,6 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // BUILD
-  // ══════════════════════════════════════════════════════════════════════════
-
   @override
   Widget build(BuildContext context) {
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -257,13 +226,11 @@ class _ProfilePageState extends State<ProfilePage>
               physics: const BouncingScrollPhysics(),
               slivers: [
                 _buildAppBar(),
-                // ── Loading skeleton saat fetch pertama ───────────────────
                 if (_isLoadingProfile)
                   const SliverFillRemaining(
                     child: Center(
                       child: SizedBox(
-                        width: 32,
-                        height: 32,
+                        width: 32, height: 32,
                         child: CircularProgressIndicator(
                             strokeWidth: 2.5, color: _green),
                       ),
@@ -298,7 +265,6 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
-  // ─── App Bar ──────────────────────────────────────────────────────────────
   Widget _buildAppBar() {
     return SliverAppBar(
       backgroundColor: _bg,
@@ -319,24 +285,18 @@ class _ProfilePageState extends State<ProfilePage>
               color: _textSec, size: 16),
         ),
       ),
-      title: const Text(
-        'Profile',
-        style: TextStyle(
-          color: _textPrimary,
-          fontSize: 17,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.4,
-        ),
-      ),
+      title: const Text('Profile',
+          style: TextStyle(
+            color: _textPrimary, fontSize: 17,
+            fontWeight: FontWeight.w600, letterSpacing: 0.4,
+          )),
       centerTitle: true,
       actions: [
-        // Tombol Edit/Cancel — disabled saat loading
         if (!_isLoadingProfile)
           GestureDetector(
             onTap: () {
               HapticFeedback.lightImpact();
               if (_isEditing) {
-                // Cancel → reset ke data server
                 setState(() => _isEditing = false);
                 _resetToServerData();
               } else {
@@ -357,8 +317,7 @@ class _ProfilePageState extends State<ProfilePage>
                   _isEditing ? 'Cancel' : 'Edit',
                   style: TextStyle(
                     color: _isEditing ? _green : _textSec,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 13, fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
@@ -372,13 +331,10 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
-  // ─── Avatar Section ───────────────────────────────────────────────────────
   Widget _buildAvatarSection() {
     final initials = (_nameController.text.isNotEmpty
             ? _nameController.text[0]
-            : widget.username.isNotEmpty
-                ? widget.username[0]
-                : 'U')
+            : widget.username.isNotEmpty ? widget.username[0] : 'U')
         .toUpperCase();
 
     return Column(
@@ -388,8 +344,7 @@ class _ProfilePageState extends State<ProfilePage>
           child: Stack(
             children: [
               Container(
-                width: 104,
-                height: 104,
+                width: 104, height: 104,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: const LinearGradient(
@@ -398,11 +353,8 @@ class _ProfilePageState extends State<ProfilePage>
                     end: Alignment.bottomRight,
                   ),
                   boxShadow: [
-                    BoxShadow(
-                      color: _green.withOpacity(0.30),
-                      blurRadius: 24,
-                      spreadRadius: 2,
-                    ),
+                    BoxShadow(color: _green.withOpacity(0.30),
+                        blurRadius: 24, spreadRadius: 2),
                   ],
                 ),
                 padding: const EdgeInsets.all(3),
@@ -421,8 +373,7 @@ class _ProfilePageState extends State<ProfilePage>
                     ),
                     child: const Center(
                       child: SizedBox(
-                        width: 28,
-                        height: 28,
+                        width: 28, height: 28,
                         child: CircularProgressIndicator(
                             strokeWidth: 2.5, color: _green),
                       ),
@@ -431,14 +382,11 @@ class _ProfilePageState extends State<ProfilePage>
                 ),
               if (_isEditing && !_isUploadingImage)
                 Positioned(
-                  bottom: 2,
-                  right: 2,
+                  bottom: 2, right: 2,
                   child: Container(
-                    width: 30,
-                    height: 30,
+                    width: 30, height: 30,
                     decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _green,
+                      shape: BoxShape.circle, color: _green,
                       border: Border.all(color: _bg, width: 2),
                     ),
                     child: const Icon(Icons.camera_alt_rounded,
@@ -450,14 +398,10 @@ class _ProfilePageState extends State<ProfilePage>
         ),
         const SizedBox(height: 16),
         Text(
-          _nameController.text.isNotEmpty
-              ? _nameController.text
-              : widget.username,
+          _nameController.text.isNotEmpty ? _nameController.text : widget.username,
           style: const TextStyle(
-            color: _textPrimary,
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 0.2,
+            color: _textPrimary, fontSize: 22,
+            fontWeight: FontWeight.bold, letterSpacing: 0.2,
           ),
         ),
         const SizedBox(height: 4),
@@ -471,41 +415,32 @@ class _ProfilePageState extends State<ProfilePage>
             borderRadius: BorderRadius.circular(20),
             border: Border.all(color: _greenDim, width: 1),
           ),
-          child: Text(
-            widget.role,
-            style: const TextStyle(
-              color: _green,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1.2,
-            ),
-          ),
+          child: Text(widget.role,
+              style: const TextStyle(
+                color: _green, fontSize: 11,
+                fontWeight: FontWeight.w600, letterSpacing: 1.2,
+              )),
         ),
       ],
     );
   }
 
-  // ── Isi avatar: file lokal → URL server → initials ────────────────────────
   Widget _buildAvatarContent(String initials) {
     if (_profileImageFile != null) {
       return Image.file(_profileImageFile!, fit: BoxFit.cover);
     }
     if (_profileImageUrl != null && _profileImageUrl!.isNotEmpty) {
       return Image.network(
-        _profileImageUrl!,
-        fit: BoxFit.cover,
+        _profileImageUrl!, fit: BoxFit.cover,
         loadingBuilder: (_, child, progress) {
           if (progress == null) return child;
           return Center(
             child: SizedBox(
-              width: 22,
-              height: 22,
+              width: 22, height: 22,
               child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: _green,
+                strokeWidth: 2, color: _green,
                 value: progress.expectedTotalBytes != null
-                    ? progress.cumulativeBytesLoaded /
-                        progress.expectedTotalBytes!
+                    ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
                     : null,
               ),
             ),
@@ -520,22 +455,16 @@ class _ProfilePageState extends State<ProfilePage>
   Widget _initialsWidget(String initials) => Center(
         child: Text(initials,
             style: const TextStyle(
-              color: _green,
-              fontWeight: FontWeight.bold,
-              fontSize: 36,
-              letterSpacing: -1,
-            )),
-      );
+              color: _green, fontWeight: FontWeight.bold,
+              fontSize: 36, letterSpacing: -1,
+            )));
 
-  // ─── Static Info Card ─────────────────────────────────────────────────────
   Widget _buildInfoCard() {
     return _GlassCard(
       child: Column(
         children: [
-          _InfoRow(
-              icon: Icons.mail_outline_rounded,
-              label: 'Email',
-              value: widget.email),
+          _InfoRow(icon: Icons.mail_outline_rounded,
+              label: 'Email', value: widget.email),
           Container(
             height: 1,
             margin: const EdgeInsets.symmetric(vertical: 12),
@@ -552,7 +481,6 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
-  // ─── Editable Fields Card ─────────────────────────────────────────────────
   Widget _buildFieldsCard() {
     return _GlassCard(
       child: Column(
@@ -560,22 +488,16 @@ class _ProfilePageState extends State<ProfilePage>
         children: [
           Padding(
             padding: const EdgeInsets.only(bottom: 16),
-            child: Text(
-              'PERSONAL INFORMATION',
-              style: TextStyle(
-                color: _green.withOpacity(0.9),
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.4,
-              ),
-            ),
+            child: Text('PERSONAL INFORMATION',
+                style: TextStyle(
+                  color: _green.withOpacity(0.9), fontSize: 11,
+                  fontWeight: FontWeight.w700, letterSpacing: 1.4,
+                )),
           ),
           _buildField(
             controller: _nameController,
-            label: 'Display Name',
-            hint: 'Enter your name',
-            icon: Icons.person_outline_rounded,
-            enabled: _isEditing,
+            label: 'Display Name', hint: 'Enter your name',
+            icon: Icons.person_outline_rounded, enabled: _isEditing,
             validator: (v) =>
                 v == null || v.isEmpty ? 'Name cannot be empty' : null,
           ),
@@ -584,17 +506,13 @@ class _ProfilePageState extends State<ProfilePage>
             controller: _descController,
             label: 'Bio / Description',
             hint: 'Tell something about yourself...',
-            icon: Icons.notes_rounded,
-            enabled: _isEditing,
-            maxLines: 3,
+            icon: Icons.notes_rounded, enabled: _isEditing, maxLines: 3,
           ),
           const SizedBox(height: 16),
           _buildField(
             controller: _birthYearController,
-            label: 'Birth Year',
-            hint: 'e.g. 1998',
-            icon: Icons.cake_outlined,
-            enabled: _isEditing,
+            label: 'Birth Year', hint: 'e.g. 1998',
+            icon: Icons.cake_outlined, enabled: _isEditing,
             keyboardType: TextInputType.number,
             inputFormatters: [
               FilteringTextInputFormatter.digitsOnly,
@@ -614,7 +532,6 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
-  // ─── Save Button ──────────────────────────────────────────────────────────
   Widget _buildSaveButton() {
     return GestureDetector(
       onTap: _isSaving ? null : _saveProfile,
@@ -623,27 +540,19 @@ class _ProfilePageState extends State<ProfilePage>
         height: 52,
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors:
-                _isSaving ? [_greenDim, _greenDim] : [_green, _greenGlow],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+            colors: _isSaving ? [_greenDim, _greenDim] : [_green, _greenGlow],
+            begin: Alignment.topLeft, end: Alignment.bottomRight,
           ),
           borderRadius: BorderRadius.circular(14),
-          boxShadow: _isSaving
-              ? []
-              : [
-                  BoxShadow(
-                    color: _green.withOpacity(0.35),
-                    blurRadius: 18,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
+          boxShadow: _isSaving ? [] : [
+            BoxShadow(color: _green.withOpacity(0.35),
+                blurRadius: 18, offset: const Offset(0, 6)),
+          ],
         ),
         child: Center(
           child: _isSaving
               ? const SizedBox(
-                  width: 22,
-                  height: 22,
+                  width: 22, height: 22,
                   child: CircularProgressIndicator(
                       strokeWidth: 2.5, color: Colors.black),
                 )
@@ -652,15 +561,11 @@ class _ProfilePageState extends State<ProfilePage>
                   children: [
                     Icon(Icons.check_rounded, color: Colors.black, size: 20),
                     SizedBox(width: 8),
-                    Text(
-                      'Save Changes',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                        letterSpacing: 0.3,
-                      ),
-                    ),
+                    Text('Save Changes',
+                        style: TextStyle(
+                          color: Colors.black, fontWeight: FontWeight.bold,
+                          fontSize: 15, letterSpacing: 0.3,
+                        )),
                   ],
                 ),
         ),
@@ -668,7 +573,6 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
-  // ─── Form Field ───────────────────────────────────────────────────────────
   Widget _buildField({
     required TextEditingController controller,
     required String label,
@@ -685,10 +589,8 @@ class _ProfilePageState extends State<ProfilePage>
       children: [
         Text(label,
             style: const TextStyle(
-              color: _textSec,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0.3,
+              color: _textSec, fontSize: 12,
+              fontWeight: FontWeight.w500, letterSpacing: 0.3,
             )),
         const SizedBox(height: 8),
         TextFormField(
@@ -702,8 +604,8 @@ class _ProfilePageState extends State<ProfilePage>
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: const TextStyle(color: _textMuted, fontSize: 14),
-            prefixIcon: Icon(icon,
-                size: 18, color: enabled ? _green : _textMuted),
+            prefixIcon: Icon(icon, size: 18,
+                color: enabled ? _green : _textMuted),
             filled: true,
             fillColor: enabled ? _surface : const Color(0xFF0C0C0C),
             contentPadding:
@@ -739,7 +641,6 @@ class _ProfilePageState extends State<ProfilePage>
   }
 }
 
-// ─── Glass Card ───────────────────────────────────────────────────────────────
 class _GlassCard extends StatelessWidget {
   final Widget child;
   const _GlassCard({required this.child});
@@ -756,8 +657,7 @@ class _GlassCard extends StatelessWidget {
         boxShadow: [
           BoxShadow(
             color: const Color(0xFF5FAD56).withOpacity(0.04),
-            blurRadius: 20,
-            spreadRadius: 2,
+            blurRadius: 20, spreadRadius: 2,
           ),
         ],
       ),
@@ -766,7 +666,6 @@ class _GlassCard extends StatelessWidget {
   }
 }
 
-// ─── Info Row ─────────────────────────────────────────────────────────────────
 class _InfoRow extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -785,8 +684,7 @@ class _InfoRow extends StatelessWidget {
     return Row(
       children: [
         Container(
-          width: 36,
-          height: 36,
+          width: 36, height: 36,
           decoration: BoxDecoration(
             color: const Color(0xFF1A3A1A),
             borderRadius: BorderRadius.circular(9),
@@ -800,17 +698,14 @@ class _InfoRow extends StatelessWidget {
             children: [
               Text(label,
                   style: const TextStyle(
-                    color: Color(0xFF4A6B4A),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: 0.3,
+                    color: Color(0xFF4A6B4A), fontSize: 11,
+                    fontWeight: FontWeight.w500, letterSpacing: 0.3,
                   )),
               const SizedBox(height: 2),
               Text(value,
                   style: TextStyle(
                     color: valueColor ?? Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
+                    fontSize: 14, fontWeight: FontWeight.w500,
                   )),
             ],
           ),

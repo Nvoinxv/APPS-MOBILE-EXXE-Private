@@ -10,11 +10,24 @@
 #   - Subprocess isolated via sys.executable
 #   - stdin closed — no interactive input
 #   - Blacklist: blokir import/command berbahaya sebelum dieksekusi
+#
+# FIX — Modular workspace support:
+#   - workspace_files: dict[str, str] berisi semua file dalam satu folder
+#     indicator. Key = relative path (e.g. "TESTING/TESTING_1.py"),
+#     Value = content string.
+#   - Sebelum eksekusi, semua file ditulis ke tempdir → Python bisa resolve
+#     `from TESTING.TESTING_1 import ...` karena file benar-benar ada di disk.
+#   - tempdir dibersihkan otomatis setelah eksekusi selesai (finally block).
+#   - BUG FIX: _inject_cwd() hasil (runnable) sekarang benar-benar dipakai
+#     sebagai code yang dieksekusi, bukan `code` asli.
 # =============================================================================
 
 import asyncio
+import os
 import re
 import sys
+import tempfile
+import shutil
 from typing import AsyncGenerator
 
 TIMEOUT_SECONDS = 10
@@ -23,14 +36,7 @@ TIMEOUT_SECONDS = 10
 # =============================================================================
 #  SECURITY — Blacklist
 # =============================================================================
-#
-#  Strategi: AST-level check + regex pattern matching
-#  Bukan 100% bulletproof, tapi cukup untuk block casual misuse.
-#  Untuk production-grade isolation → pakai Docker-in-Docker / gVisor.
-#
-# =============================================================================
 
-# ── Modul yang diblokir total ─────────────────────────────────────────────────
 BLOCKED_MODULES = {
     "os",
     "subprocess",
@@ -39,7 +45,7 @@ BLOCKED_MODULES = {
     "pathlib",
     "glob",
     "socket",
-    "asyncio",        # bisa spawn subprocess
+    "asyncio",
     "multiprocessing",
     "threading",
     "signal",
@@ -59,13 +65,13 @@ BLOCKED_MODULES = {
     "pkgutil",
     "zipimport",
     "builtins",
-    "gc",             # garbage collector manipulation
-    "inspect",        # bisa akses frame/source code
+    "gc",
+    "inspect",
     "traceback",
     "linecache",
     "tokenize",
     "ast",
-    "dis",            # bytecode disassembler
+    "dis",
     "compileall",
     "py_compile",
     "code",
@@ -74,7 +80,7 @@ BLOCKED_MODULES = {
     "faulthandler",
     "tempfile",
     "io",
-    "pickle",         # arbitrary code execution via deserialization
+    "pickle",
     "shelve",
     "marshal",
     "struct",
@@ -92,9 +98,7 @@ BLOCKED_MODULES = {
     "plistlib",
 }
 
-# ── Pattern berbahaya (regex) ─────────────────────────────────────────────────
 BLOCKED_PATTERNS: list[tuple[str, str]] = [
-    # __dunder__ abuse
     (r"__import__",          "Penggunaan __import__ tidak diizinkan"),
     (r"__builtins__",        "Akses __builtins__ tidak diizinkan"),
     (r"__class__",           "Akses __class__ tidak diizinkan"),
@@ -106,8 +110,6 @@ BLOCKED_PATTERNS: list[tuple[str, str]] = [
     (r"__getattribute__",    "Akses __getattribute__ tidak diizinkan"),
     (r"__bases__",           "Akses __bases__ tidak diizinkan"),
     (r"__mro__",             "Akses __mro__ tidak diizinkan"),
-
-    # Shell / exec escape
     (r"\beval\s*\(",         "eval() tidak diizinkan"),
     (r"\bexec\s*\(",         "exec() tidak diizinkan"),
     (r"\bcompile\s*\(",      "compile() tidak diizinkan"),
@@ -118,13 +120,9 @@ BLOCKED_PATTERNS: list[tuple[str, str]] = [
     (r"\bdelattr\s*\(",      "delattr() tidak diizinkan"),
     (r"\bvars\s*\(",         "vars() tidak diizinkan"),
     (r"\bdir\s*\(",          "dir() tidak diizinkan"),
-
-    # Pip / package install
     (r"pip\s+install",       "pip install tidak diizinkan"),
     (r"pip3\s+install",      "pip3 install tidak diizinkan"),
     (r"easy_install",        "easy_install tidak diizinkan"),
-
-    # Environment / process
     (r"environ",             "Akses environment variable tidak diizinkan"),
     (r"getenv",              "Akses getenv tidak diizinkan"),
     (r"fork\s*\(",           "fork() tidak diizinkan"),
@@ -135,7 +133,6 @@ BLOCKED_PATTERNS: list[tuple[str, str]] = [
     (r"spawn\s*\(",          "spawn() tidak diizinkan"),
 ]
 
-# Pre-compile regex patterns sekali saja (performa)
 _COMPILED_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(pattern, re.IGNORECASE), reason)
     for pattern, reason in BLOCKED_PATTERNS
@@ -147,25 +144,17 @@ _COMPILED_PATTERNS: list[tuple[re.Pattern, str]] = [
 # ─────────────────────────────────────────────────────────────────────────────
 
 class SecurityViolation(Exception):
-    """Raised kalau code mengandung pattern berbahaya."""
     pass
 
 
 def _check_blocked_imports(code: str) -> None:
-    """
-    Parse import statements dan cek apakah modulnya ada di BLOCKED_MODULES.
-    Support: import X, import X as Y, from X import Y, from X.Y import Z
-    """
-    # Regex untuk semua bentuk import
     import_patterns = [
         re.compile(r"^\s*import\s+([\w,\s]+)", re.MULTILINE),
         re.compile(r"^\s*from\s+([\w.]+)\s+import", re.MULTILINE),
     ]
-
     for pattern in import_patterns:
         for match in pattern.finditer(code):
             raw = match.group(1).strip()
-            # Handle "import os, sys, numpy" → split by comma
             modules = [m.strip().split()[0].split(".")[0] for m in raw.split(",")]
             for mod in modules:
                 if mod in BLOCKED_MODULES:
@@ -175,31 +164,66 @@ def _check_blocked_imports(code: str) -> None:
 
 
 def _check_blocked_patterns(code: str) -> None:
-    """Scan code terhadap regex patterns berbahaya."""
     for compiled, reason in _COMPILED_PATTERNS:
         if compiled.search(code):
             raise SecurityViolation(reason)
 
 
 def validate_code(code: str) -> None:
-    """
-    Full security check. Raise SecurityViolation kalau ada yang terdeteksi.
-    Dipanggil sebelum subprocess dijalankan.
-    """
     _check_blocked_imports(code)
     _check_blocked_patterns(code)
 
 
-# =============================================================================
-#  One-shot execution
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+#  Workspace tempdir helper
+#
+#  workspace_files: dict[str, str]
+#    key   = relative path file dalam workspace, e.g.:
+#            "main.py", "TESTING/TESTING_1.py", "utils/helpers.py"
+#    value = content file sebagai string
+#
+#  Return: path absolut tempdir yang sudah berisi semua file.
+#  Caller wajib hapus tempdir setelah eksekusi (pakai finally + shutil.rmtree).
+# ─────────────────────────────────────────────────────────────────────────────
 
-async def run_code(code: str, timeout: int = TIMEOUT_SECONDS) -> dict:
+def _write_workspace_to_tempdir(workspace_files: dict[str, str]) -> str:
+    """
+    Tulis semua file workspace ke tempdir baru.
+    Return absolute path tempdir.
+    """
+    tmpdir = tempfile.mkdtemp(prefix="exxe_ws_")
+    for rel_path, content in workspace_files.items():
+        # Sanitize: cegah path traversal
+        rel_path = rel_path.lstrip("/").replace("..", "")
+        abs_path = os.path.join(tmpdir, rel_path)
+        # Buat parent directory kalau belum ada
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        with open(abs_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        # Buat __init__.py di setiap subfolder supaya bisa di-import
+        parent = os.path.dirname(abs_path)
+        init_path = os.path.join(parent, "__init__.py")
+        if not os.path.exists(init_path):
+            open(init_path, "w").close()
+    return tmpdir
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  One-shot execution
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def run_code(
+    code:            str,
+    timeout:         int            = TIMEOUT_SECONDS,
+    cwd:             str | None     = None,   # legacy, tidak dipakai lagi
+    workspace_files: dict[str, str] | None = None,
+) -> dict:
     """
     Jalankan code Python, tunggu sampai selesai, return dict.
-    Dipakai oleh POST /execute (non-streaming).
+
+    workspace_files: semua file dalam workspace folder indicator.
+    Jika diisi, file ditulis ke tempdir → import modular bisa jalan.
     """
-    # Security check dulu sebelum subprocess
     try:
         validate_code(code)
     except SecurityViolation as e:
@@ -209,12 +233,25 @@ async def run_code(code: str, timeout: int = TIMEOUT_SECONDS) -> dict:
             "exit_code": -2,
         }
 
+    tmpdir = None
     try:
+        # Tulis workspace files ke tempdir kalau ada
+        if workspace_files:
+            tmpdir   = _write_workspace_to_tempdir(workspace_files)
+            run_cwd  = tmpdir
+        else:
+            run_cwd  = None
+
+        # Inject sys.path ke tempdir supaya import resolve dengan benar
+        runnable = f"import sys as _sys; _sys.path.insert(0, {repr(run_cwd)})\n{code}" \
+                   if run_cwd else code
+
         proc = await asyncio.create_subprocess_exec(
-            sys.executable, "-c", code,
+            sys.executable, "-c", runnable,   # ← pakai runnable, bukan code
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             stdin=asyncio.subprocess.DEVNULL,
+            cwd=run_cwd,                       # ← working dir = tempdir
         )
 
         stdout, stderr = await asyncio.wait_for(
@@ -246,17 +283,27 @@ async def run_code(code: str, timeout: int = TIMEOUT_SECONDS) -> dict:
             "exit_code": -1,
         }
 
+    finally:
+        # Bersihkan tempdir setelah eksekusi
+        if tmpdir and os.path.exists(tmpdir):
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
 
 # =============================================================================
 #  Streaming execution — async generator untuk SSE
 # =============================================================================
 
 async def run_code_stream(
-    code: str,
-    timeout: int = TIMEOUT_SECONDS,
+    code:            str,
+    timeout:         int            = TIMEOUT_SECONDS,
+    cwd:             str | None     = None,   # legacy, tidak dipakai lagi
+    workspace_files: dict[str, str] | None = None,
 ) -> AsyncGenerator[str, None]:
     """
     Jalankan code Python, yield output line-by-line sebagai SSE events.
+
+    workspace_files: semua file dalam workspace folder indicator.
+    Jika diisi, file ditulis ke tempdir → import modular bisa jalan.
 
     Format setiap yield:
         "data: <json>\\n\\n"
@@ -270,13 +317,11 @@ async def run_code_stream(
         payload = json.dumps({"type": type_, "data": data}, ensure_ascii=False)
         return f"data: {payload}\n\n"
 
-    # Guard: kode kosong
     if not code.strip():
         yield _event("system", "[Error] Code is empty.")
         yield _event("exit", "1")
         return
 
-    # Security check
     try:
         validate_code(code)
     except SecurityViolation as e:
@@ -287,13 +332,26 @@ async def run_code_stream(
         yield _event("exit", "-2")
         return
 
-    proc = None
+    tmpdir = None
+    proc   = None
     try:
+        # Tulis workspace files ke tempdir kalau ada
+        if workspace_files:
+            tmpdir  = _write_workspace_to_tempdir(workspace_files)
+            run_cwd = tmpdir
+        else:
+            run_cwd = None
+
+        # Inject sys.path ke tempdir
+        runnable = f"import sys as _sys; _sys.path.insert(0, {repr(run_cwd)})\n{code}" \
+                   if run_cwd else code
+
         proc = await asyncio.create_subprocess_exec(
-            sys.executable, "-c", code,
+            sys.executable, "-c", runnable,   # ← pakai runnable, bukan code
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             stdin=asyncio.subprocess.DEVNULL,
+            cwd=run_cwd,                       # ← working dir = tempdir
         )
 
         yield _event("system", "▶  Running...")
@@ -371,3 +429,8 @@ async def run_code_stream(
         yield _event("system", "─" * 40)
         yield _event("stderr", f"[Runner Error] {str(e)}")
         yield _event("exit", "-1")
+
+    finally:
+        # Bersihkan tempdir setelah stream selesai
+        if tmpdir and os.path.exists(tmpdir):
+            shutil.rmtree(tmpdir, ignore_errors=True)

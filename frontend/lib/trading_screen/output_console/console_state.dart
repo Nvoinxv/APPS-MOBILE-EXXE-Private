@@ -2,13 +2,11 @@
 // console_state.dart
 // Path: frontend/lib/trading_screen/output_console/console_state.dart
 //
-// CHANGES v_execute:
-//  - [NEW] executeCode(String code) — one-shot method: startRun →
-//          ExecuteHook.runCode → setResult. Dipanggil dari editor_toolbar
-//          atau tradingviewcodeeditor_screen, bukan perlu manage state sendiri.
-//  - [NEW] stopRun() — set status error + tulis warning buat Stop button.
-//  - [KEPT] startRun(), setResult(), semua write helpers — tidak diubah.
-//  - Import execute_hook.dart sudah ada sebelumnya, sekarang benar-benar dipakai.
+// FIX:
+//  - [UPDATED] executeCode() — ganti param cwd (String?) → folderId (String?)
+//    dan forward ke ExecuteHook.runCodeStream(folderId: folderId).
+//    Sebelumnya pakai cwd tapi runCodeStream tidak punya param itu
+//    → compile error: No named parameter with the name 'cwd'.
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -39,7 +37,6 @@ class ConsoleLog {
   });
 }
 
-
 // ─────────────────────────────────────────────────────────────────────────────
 //  ConsoleState — ChangeNotifier, di-listen oleh OutputConsolePanel
 // ─────────────────────────────────────────────────────────────────────────────
@@ -65,7 +62,7 @@ class ConsoleState extends ChangeNotifier {
   int get errorCount   => _logs.where((l) => l.level == LogLevel.stderr).length;
   int get warningCount => _logs.where((l) => l.level == LogLevel.warning).length;
 
-  // ── Write helpers — tidak diubah ───────────────────────────────────────────
+  // ── Write helpers ──────────────────────────────────────────────────────────
 
   void write(String message, {LogLevel level = LogLevel.stdout}) {
     for (final line in message.split('\n')) {
@@ -86,7 +83,7 @@ class ConsoleState extends ChangeNotifier {
   void writeWarning(String msg) => write(msg, level: LogLevel.warning);
   void writeSystem(String msg)  => write(msg, level: LogLevel.system);
 
-  // ── State control — tidak diubah ──────────────────────────────────────────
+  // ── State control ──────────────────────────────────────────────────────────
 
   void setStatus(RunStatus s) {
     _status = s;
@@ -142,12 +139,8 @@ class ConsoleState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ── [NEW] stopRun — dipanggil dari Stop button ────────────────────────────
-  //
-  //  ExecuteHook tidak support cancel mid-flight (fire-and-forget HTTP),
-  //  jadi kita set status error sekarang → guard di executeCode() cek
-  //  isRunning sebelum setResult() → output tidak di-push setelah stop.
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── stopRun ────────────────────────────────────────────────────────────────
+
   void stopRun() {
     if (_status != RunStatus.running) return;
     writeSystem('─' * 48);
@@ -156,53 +149,80 @@ class ConsoleState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ── [NEW] executeCode — one-shot: startRun → ExecuteHook → setResult ─────
+  // ── appendLine — bridge SSE type string → LogLevel ────────────────────────
+
+  void appendLine({required String type, required String text}) {
+    if (!isRunning) return;
+
+    final level = switch (type) {
+      'stdout' => LogLevel.stdout,
+      'stderr' => LogLevel.stderr,
+      'system' => LogLevel.system,
+      _        => LogLevel.info,
+    };
+
+    write(text, level: level);
+  }
+
+  // ── setDone — finalize setelah stream exit event ───────────────────────────
+
+  void setDone(int exitCode) {
+    if (!isRunning) return;
+
+    if (exitCode == 0) {
+      writeSuccess('✓  Process exited with code 0');
+      _status = RunStatus.done;
+    } else {
+      writeWarning('✗  Process exited with code $exitCode');
+      _status = RunStatus.error;
+    }
+
+    notifyListeners();
+  }
+
+  // ── executeCode — FIX: ganti cwd → folderId ───────────────────────────────
   //
-  //  Usage di toolbar / screen:
+  //  Sebelumnya: param cwd (String?) → forward ke runCodeStream(cwd: cwd)
+  //  → compile error karena runCodeStream tidak punya param 'cwd'.
   //
-  //    await console.executeCode(activeFile.content, fileName: activeFile.name);
-  //
-  //  Method ini handle semua state transitions sendiri. Caller tidak perlu
-  //  manggil startRun / setResult / setStatus secara manual.
-  //
-  //  Guard `isRunning` sebelum setResult() memastikan kalau stopRun()
-  //  dipanggil saat awaiting, output tidak di-push ke console.
-  // ─────────────────────────────────────────────────────────────────────────
-  Future<void> executeCode(String code, {String? fileName}) async {
-    // Guard: jangan double-run
+  //  Sekarang: param folderId (String?) → forward ke runCodeStream(folderId: folderId).
+  //  folderId diisi oleh caller (_runCode di tradingviewcodeeditor_screen.dart)
+  //  via folderIdFromWorkspace(hook.workspace, activeFile).
+  //  Null kalau file tidak berada dalam folder manapun.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  Future<void> executeCode(
+    String code, {
+    String? fileName,
+    String? folderId,   // ← FIX: was cwd (String?)
+  }) async {
     if (_status == RunStatus.running) return;
 
-    // Guard: jangan run kode kosong
     if (code.trim().isEmpty) {
       writeWarning('Nothing to run — file is empty.');
       return;
     }
 
-    // 1. Setup console
     startRun(fileName);
 
-    try {
-      // 2. Hit backend via ExecuteHook
-      final result = await ExecuteHook.runCode(code);
-
-      // 3. Guard: stop dipencet sebelum response balik
-      if (!isRunning) return;
-
-      // 4. Push hasil ke console
-      setResult(
-        stdout:   (result['stdout']    as String?) ?? '',
-        stderr:   (result['stderr']    as String?) ?? '',
-        exitCode: (result['exit_code'] as int?)    ?? -1,
-      );
-    } catch (e) {
-      // 5. Network error / timeout
-      if (isRunning) {
-        writeSystem('─' * 48);
-        writeError('ExecuteHook error: $e');
-        _status = RunStatus.error;
-        notifyListeners();
-      }
-    }
+    await ExecuteHook.runCodeStream(
+      code:     code,
+      folderId: folderId,  // ← FIX: was cwd
+      onData: (type, data) {
+        appendLine(type: type, text: data);
+      },
+      onDone: (exitCode) {
+        setDone(exitCode);
+      },
+      onError: (error) {
+        if (isRunning) {
+          writeSystem('─' * 48);
+          writeError(error);
+          _status = RunStatus.error;
+          notifyListeners();
+        }
+      },
+    );
   }
 
   // ── Filter ─────────────────────────────────────────────────────────────────

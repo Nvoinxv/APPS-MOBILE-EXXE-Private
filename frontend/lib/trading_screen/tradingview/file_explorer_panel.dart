@@ -1,17 +1,31 @@
 // =============================================================================
 // file_explorer_panel.dart
-// Path: frontend/lib/trading_screen/tradingview/components/file_explorer_panel.dart
+// FIX OVERFLOW v7 — FINAL:
 //
-// FIX BATCH 1: scrollController optional param ke ListView.
-// FIX BATCH 2: File tidak muncul di explorer setelah dibuat.
-// FIX BATCH 3: `chrome` & `syntax` di `_HeaderIconBtnState` → `widget.chrome`
-//              & `widget.syntax`.
-// FIX BATCH 4: Path Detection & Display
-// FIX BATCH 5: `addFile` sekarang async — semua caller wajib await.
-//              `_showNewFileDialog` diubah jadi async dan await addFile +
-//              openFile. Error sebelumnya:
-//                "The argument type 'Future<ScriptFile>' can't be assigned
-//                 to the parameter type 'ScriptFile'."
+//  Root cause overflow v6:
+//    Semua guard sebelumnya (canShowFooter, canShowSearch, dll) berhasil
+//    menekan elemen opsional, tapi TIDAK ada guard untuk header itu sendiri.
+//    Ketika availH = 34.8px dan _kHeaderH = 38px, Column selalu mencoba
+//    render header 38px di dalam container 34.8px → overflow 3.2px persis
+//    sesuai error log. treeH di-clamp ke 0 sehingga kontribusinya nol,
+//    tapi header tetap overflow.
+//
+//  Solusi v7 (surgical, single change):
+//    Tambah early return SATU BLOK setelah treeH dihitung (di dalam
+//    ListenableBuilder), sebelum SizedBox + Column di-render:
+//
+//      if (availH < _kHeaderH) {
+//        return SizedBox(
+//          width:  widget.width,
+//          height: availH,
+//          child: ColoredBox(color: chrome.sidebarBackground),
+//        );
+//      }
+//
+//    Kalau ruang < 38px, return ColoredBox tipis saja — tidak ada Column,
+//    tidak ada header, tidak ada overflow assertion.
+//
+//  Semua fix dari v4–v6 tetap dipertahankan.
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -68,6 +82,18 @@ class _FileExplorerPanelState extends State<FileExplorerPanel>
   IsolatedTradingViewHook get hook => widget.hook;
   EditorPermission        get perm => hook.permission;
 
+  // Tinggi eksplisit setiap fixed child.
+  static const double _kHeaderH  = 38.0;
+  static const double _kSearchH  = 42.0;
+  static const double _kPathBarH = 26.0;
+  static const double _kDividerH =  1.0;
+  static const double _kFooterH  = 24.0;
+
+  // Threshold gate elemen opsional.
+  static const double _kMinForFooter  = _kHeaderH + _kFooterH + 1;
+  static const double _kMinForPathBar = _kMinForFooter + _kPathBarH + _kDividerH;
+  static const double _kMinForSearch  = _kMinForPathBar + _kSearchH + 1;
+
   @override
   void initState() {
     super.initState();
@@ -89,8 +115,6 @@ class _FileExplorerPanelState extends State<FileExplorerPanel>
     super.dispose();
   }
 
-  // ── Search toggle ─────────────────────────────────────────────────────────
-
   void _toggleSearch() {
     setState(() => _showSearch = !_showSearch);
     if (_showSearch) {
@@ -102,14 +126,12 @@ class _FileExplorerPanelState extends State<FileExplorerPanel>
     }
   }
 
-  // ── Helper: cek apakah sebuah folder adalah shared ────────────────────────
-
   bool _isSharedFolder(String? folderId) {
     if (folderId == null) return false;
-    return folderId.contains(EditorPermission.sharedOwnerId);
+    final sharedId = EditorPermission.sharedOwnerId ?? '';
+    if (sharedId.isEmpty) return false;
+    return folderId.contains(sharedId);
   }
-
-  // ── Helper: rekursif hitung total file ───────────────────────────────────
 
   int _countFiles(ScriptFolder folder) {
     return folder.files.length +
@@ -119,30 +141,17 @@ class _FileExplorerPanelState extends State<FileExplorerPanel>
         );
   }
 
-  // ── Helper: cari folder user (non-shared) ────────────────────────────────
-
   ScriptFolder? _resolveDefaultFolder() {
     final roots = hook.workspace.buildFolderTree();
     if (roots.isEmpty) return null;
     try {
       return roots.firstWhere(
-        (r) => !r.id.contains(EditorPermission.sharedOwnerId),
+        (r) => !r.id.contains(EditorPermission.sharedOwnerId ?? ''),
       );
     } catch (_) {
       return roots.first;
     }
   }
-
-  // ── New file dialog ───────────────────────────────────────────────────────
-  //
-  // FIX BATCH 5: addFile() sekarang async (Future<ScriptFile>).
-  // Sebelumnya:
-  //   final file = hook.workspace.addFile(parentFolderId, name.trim()); // sync
-  //   hook.openFile(file);                                              // error
-  //
-  // Sesudah:
-  //   final file = await hook.workspace.addFile(parentFolderId, name.trim());
-  //   hook.openFile(file);
 
   Future<void> _showNewFileDialog(String parentFolderId) async {
     final chrome = hook.editorTheme.chrome;
@@ -164,12 +173,9 @@ class _FileExplorerPanelState extends State<FileExplorerPanel>
       return;
     }
 
-    // FIX: await the async addFile call before passing to openFile.
     final file = await hook.workspace.addFile(parentFolderId, name.trim());
     hook.openFile(file);
   }
-
-  // ── New folder dialog ─────────────────────────────────────────────────────
 
   Future<void> _showNewFolderDialog(String? parentFolderId) async {
     final chrome = hook.editorTheme.chrome;
@@ -193,8 +199,6 @@ class _FileExplorerPanelState extends State<FileExplorerPanel>
     }
   }
 
-  // ── Permission error snackbar ─────────────────────────────────────────────
-
   void _showPermissionError(String msg) {
     final chrome = hook.editorTheme.chrome;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -207,8 +211,6 @@ class _FileExplorerPanelState extends State<FileExplorerPanel>
       ),
     );
   }
-
-  // ── Copy path helper ──────────────────────────────────────────────────────
 
   Future<void> _copyPathToClipboard(String path) async {
     if (path.isEmpty) return;
@@ -237,12 +239,11 @@ class _FileExplorerPanelState extends State<FileExplorerPanel>
     );
   }
 
-  // ── Context menu handler ──────────────────────────────────────────────────
-
   Future<void> _handleContextMenu(
     BuildContext ctx,
     Offset globalPos,
     ScriptFile file,
+    String resolvedPath,
   ) async {
     final isInShared = _isSharedFolder(file.parentFolderId);
 
@@ -251,16 +252,17 @@ class _FileExplorerPanelState extends State<FileExplorerPanel>
     final canRename = !isInShared || perm.isAdmin;
 
     final action = await showContextMenuFile(
-      context:   ctx,
-      position:  globalPos,
-      chrome:    hook.editorTheme.chrome,
-      syntax:    hook.editorTheme.syntax,
-      file:      file,
-      canEdit:   canEdit,
-      canDelete: canDelete,
-      canRename: canRename,
-      isAdmin:   perm.isAdmin,
-      isShared:  isInShared,
+      context:      ctx,
+      position:     globalPos,
+      chrome:       hook.editorTheme.chrome,
+      syntax:       hook.editorTheme.syntax,
+      file:         file,
+      canEdit:      canEdit,
+      canDelete:    canDelete,
+      canRename:    canRename,
+      isAdmin:      perm.isAdmin,
+      isShared:     isInShared,
+      resolvedPath: resolvedPath,
     );
 
     if (action == null || !mounted) return;
@@ -276,14 +278,10 @@ class _FileExplorerPanelState extends State<FileExplorerPanel>
         await _showNewFolderDialog(file.parentFolderId);
       case ContextMenuAction.publishShared:
         _publishToShared(file);
-      // Uncomment when copyPath is added to ContextMenuAction enum:
-      // case ContextMenuAction.copyPath:
-      //   final path = hook.workspace.getFilePath(file.id);
-      //   await _copyPathToClipboard(path);
+      case ContextMenuAction.copyPath:
+        await _copyPathToClipboard(resolvedPath);
     }
   }
-
-  // ── Rename file ───────────────────────────────────────────────────────────
 
   Future<void> _renameFile(ScriptFile file) async {
     final chrome = hook.editorTheme.chrome;
@@ -363,89 +361,141 @@ class _FileExplorerPanelState extends State<FileExplorerPanel>
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: Listenable.merge([hook.workspace, hook.editorTheme, hook.tabs]),
-      builder: (context, _) {
-        final chrome = hook.editorTheme.chrome;
-        final syntax = hook.editorTheme.syntax;
+    return LayoutBuilder(
+      builder: (context, outerConstraints) {
+        final availH = outerConstraints.maxHeight;
 
-        final activeFile     = hook.tabs.activeFile;
-        final activeSegments = activeFile != null
-            ? hook.workspace.getFilePathSegments(activeFile.id)
-            : null;
+        final canShowFooter  = availH >= _kMinForFooter;
+        final canShowPathBar = availH >= _kMinForPathBar;
+        final canShowSearch  = _showSearch && availH >= _kMinForSearch;
 
-        return SizedBox(
-          width: widget.width,
-          child: Container(
-            decoration: BoxDecoration(
-              color: chrome.sidebarBackground,
-              border: Border(
-                right: BorderSide(color: chrome.gutterBorder, width: 1),
+        return ListenableBuilder(
+          listenable: Listenable.merge([hook.workspace, hook.editorTheme, hook.tabs]),
+          builder: (context, _) {
+            final chrome = hook.editorTheme.chrome;
+            final syntax = hook.editorTheme.syntax;
+
+            // ── FIX v7: hard guard ─────────────────────────────────────────
+            // Kalau ruang < header height (38px), Column pasti overflow krn
+            // header itu sendiri sudah melebihi availH. Return ColoredBox
+            // tipis — tidak ada Column, tidak ada assertion.
+            if (availH < _kHeaderH) {
+              return SizedBox(
+                width:  widget.width,
+                height: availH,
+                child: ColoredBox(color: chrome.sidebarBackground),
+              );
+            }
+            // ──────────────────────────────────────────────────────────────
+
+            final activeFile     = hook.tabs.activeFile;
+            final activeSegments = activeFile != null
+                ? hook.workspace.getFilePathSegments(activeFile.id)
+                : null;
+
+            final resolvedSegments = _hoveredPath.value ?? activeSegments;
+            final hasPathSegments  = canShowPathBar &&
+                resolvedSegments != null &&
+                resolvedSegments.isNotEmpty;
+
+            double fixedH = _kHeaderH;
+            if (canShowSearch)   fixedH += _kSearchH;
+            if (hasPathSegments) fixedH += _kPathBarH + _kDividerH;
+            if (canShowFooter)   fixedH += _kFooterH;
+
+            // Clamp ke 0 — tidak pernah negatif.
+            final treeH = (availH - fixedH).clamp(0.0, double.infinity);
+
+            return SizedBox(
+              width:  widget.width,
+              height: availH,
+              child: ClipRect(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: chrome.sidebarBackground,
+                    border: Border(
+                      right: BorderSide(color: chrome.gutterBorder, width: 1),
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+
+                      // ── Header ─────────────────────────────────────────
+                      _ExplorerHeader(
+                        perm:           perm,
+                        chrome:         chrome,
+                        syntax:         syntax,
+                        showSearch:     _showSearch,
+                        onToggleSearch: _toggleSearch,
+                        onNewFile: () {
+                          final defaultFolder = _resolveDefaultFolder();
+                          if (defaultFolder != null) {
+                            _showNewFileDialog(defaultFolder.id);
+                          }
+                        },
+                        onNewFolder: () => _showNewFolderDialog(null),
+                      ),
+
+                      // ── Search bar ─────────────────────────────────────
+                      if (canShowSearch)
+                        SizeTransition(
+                          sizeFactor:    _searchAnim,
+                          axisAlignment: -1,
+                          child: _SearchBar(
+                            ctrl:      _searchCtrl,
+                            chrome:    chrome,
+                            syntax:    syntax,
+                            onChanged: (v) => setState(() => _searchQuery = v),
+                          ),
+                        ),
+
+                      // ── Path bar + divider ─────────────────────────────
+                      if (hasPathSegments)
+                        _ActivePathBar(
+                          segments:   resolvedSegments!,
+                          chrome:     chrome,
+                          syntax:     syntax,
+                          onCopyPath: _copyPathToClipboard,
+                        ),
+                      if (hasPathSegments)
+                        Divider(height: _kDividerH, color: chrome.gutterBorder),
+
+                      // ── File tree ──────────────────────────────────────
+                      SizedBox(
+                        height: treeH,
+                        child: ClipRect(
+                          child: _FileTree(
+                            hook:                hook,
+                            perm:                perm,
+                            chrome:              chrome,
+                            syntax:              syntax,
+                            searchQuery:         _searchQuery,
+                            scrollController:    widget.scrollController,
+                            hoveredPathNotifier: _hoveredPath,
+                            onOpenFile:          hook.openFile,
+                            onContextMenu:       _handleContextMenu,
+                            onNewFile:           _showNewFileDialog,
+                            onNewFolder:         _showNewFolderDialog,
+                          ),
+                        ),
+                      ),
+
+                      // ── Footer ─────────────────────────────────────────
+                      if (canShowFooter)
+                        _ExplorerFooter(
+                          hook:       hook,
+                          chrome:     chrome,
+                          syntax:     syntax,
+                          countFiles: _countFiles,
+                        ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _ExplorerHeader(
-                  perm:           perm,
-                  chrome:         chrome,
-                  syntax:         syntax,
-                  showSearch:     _showSearch,
-                  onToggleSearch: _toggleSearch,
-                  onNewFile: () {
-                    final defaultFolder = _resolveDefaultFolder();
-                    if (defaultFolder != null) {
-                      _showNewFileDialog(defaultFolder.id);
-                    }
-                  },
-                  onNewFolder: () => _showNewFolderDialog(null),
-                ),
-
-                SizeTransition(
-                  sizeFactor: _searchAnim,
-                  child: _SearchBar(
-                    ctrl:      _searchCtrl,
-                    chrome:    chrome,
-                    syntax:    syntax,
-                    onChanged: (v) => setState(() => _searchQuery = v),
-                  ),
-                ),
-
-                _ActivePathBar(
-                  hoveredPathNotifier: _hoveredPath,
-                  activeSegments:      activeSegments,
-                  chrome:              chrome,
-                  syntax:              syntax,
-                  onCopyPath:          _copyPathToClipboard,
-                ),
-
-                Divider(height: 1, color: chrome.gutterBorder),
-
-                Expanded(
-                  child: _FileTree(
-                    hook:                hook,
-                    perm:                perm,
-                    chrome:              chrome,
-                    syntax:              syntax,
-                    searchQuery:         _searchQuery,
-                    scrollController:    widget.scrollController,
-                    hoveredPathNotifier: _hoveredPath,
-                    onOpenFile:          hook.openFile,
-                    onContextMenu:       _handleContextMenu,
-                    onNewFile:           _showNewFileDialog,
-                    onNewFolder:         _showNewFolderDialog,
-                  ),
-                ),
-
-                _ExplorerFooter(
-                  hook:       hook,
-                  chrome:     chrome,
-                  syntax:     syntax,
-                  countFiles: _countFiles,
-                ),
-              ],
-            ),
-          ),
+            );
+          },
         );
       },
     );
@@ -482,25 +532,33 @@ class _ExplorerHeader extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10),
       child: Row(
         children: [
-          Text(
-            'EXPLORER',
-            style: TextStyle(
-              color: syntax.plain.withOpacity(0.45), fontSize: 9.5,
-              fontWeight: FontWeight.w800, letterSpacing: 1.8,
+          Flexible(
+            child: Text(
+              'EXPLORER',
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: syntax.plain.withOpacity(0.45), fontSize: 9.5,
+                fontWeight: FontWeight.w800, letterSpacing: 1.8,
+              ),
             ),
           ),
-          const Spacer(),
-          _HeaderIconBtn(
-            icon:    showSearch ? Icons.search_off_rounded : Icons.search_rounded,
-            chrome:  chrome, syntax: syntax,
-            onTap:   onToggleSearch, tooltip: 'Search files',
+          const SizedBox(width: 4),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _HeaderIconBtn(
+                icon:    showSearch ? Icons.search_off_rounded : Icons.search_rounded,
+                chrome:  chrome, syntax: syntax,
+                onTap:   onToggleSearch, tooltip: 'Search files',
+              ),
+              if (perm.canCreate) ...[
+                const SizedBox(width: 2),
+                _HeaderIconBtn(icon: Icons.add_rounded, chrome: chrome, syntax: syntax, onTap: onNewFile, tooltip: 'New file'),
+                const SizedBox(width: 2),
+                _HeaderIconBtn(icon: Icons.create_new_folder_outlined, chrome: chrome, syntax: syntax, onTap: onNewFolder, tooltip: 'New folder'),
+              ],
+            ],
           ),
-          if (perm.canCreate) ...[
-            const SizedBox(width: 2),
-            _HeaderIconBtn(icon: Icons.add_rounded, chrome: chrome, syntax: syntax, onTap: onNewFile, tooltip: 'New file'),
-            const SizedBox(width: 2),
-            _HeaderIconBtn(icon: Icons.create_new_folder_outlined, chrome: chrome, syntax: syntax, onTap: onNewFolder, tooltip: 'New folder'),
-          ],
         ],
       ),
     );
@@ -635,15 +693,13 @@ class _SearchBar extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _ActivePathBar extends StatelessWidget {
-  final _PathHoverNotifier    hoveredPathNotifier;
-  final List<String>?         activeSegments;
-  final EditorChromeColors    chrome;
-  final EditorSyntaxColors    syntax;
+  final List<String>                  segments;
+  final EditorChromeColors            chrome;
+  final EditorSyntaxColors            syntax;
   final Future<void> Function(String) onCopyPath;
 
   const _ActivePathBar({
-    required this.hoveredPathNotifier,
-    required this.activeSegments,
+    required this.segments,
     required this.chrome,
     required this.syntax,
     required this.onCopyPath,
@@ -651,56 +707,45 @@ class _ActivePathBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<List<String>?>(
-      valueListenable: hoveredPathNotifier,
-      builder: (_, hoveredSegments, __) {
-        final segments = hoveredSegments ?? activeSegments;
+    final fullPath = segments.join('/');
+    final isFile   = segments.last.contains('.');
 
-        if (segments == null || segments.isEmpty) return const SizedBox.shrink();
-
-        final fullPath = segments.join('/');
-        final isFile   = segments.last.contains('.');
-
-        return AnimatedSize(
-          duration: const Duration(milliseconds: 150),
-          curve:    Curves.easeOut,
-          child: Container(
-            height: 26,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              color: chrome.surface.withOpacity(0.5),
-              border: Border(
-                bottom: BorderSide(color: chrome.gutterBorder.withOpacity(0.5)),
+    return ClipRect(
+      child: Container(
+        height: 26,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: chrome.surface.withOpacity(0.5),
+          border: Border(
+            bottom: BorderSide(color: chrome.gutterBorder.withOpacity(0.5)),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              isFile ? Icons.insert_drive_file_outlined : Icons.folder_outlined,
+              size:  11,
+              color: isFile
+                  ? chrome.cursorColor.withOpacity(0.7)
+                  : syntax.comment.withOpacity(0.6),
+            ),
+            const SizedBox(width: 5),
+            Expanded(
+              child: _BreadcrumbRow(
+                segments: segments,
+                chrome:   chrome,
+                syntax:   syntax,
               ),
             ),
-            child: Row(
-              children: [
-                Icon(
-                  isFile ? Icons.insert_drive_file_outlined : Icons.folder_outlined,
-                  size:  11,
-                  color: isFile
-                      ? chrome.cursorColor.withOpacity(0.7)
-                      : syntax.comment.withOpacity(0.6),
-                ),
-                const SizedBox(width: 5),
-                Expanded(
-                  child: _BreadcrumbRow(
-                    segments: segments,
-                    chrome:   chrome,
-                    syntax:   syntax,
-                  ),
-                ),
-                _CopyPathButton(
-                  path:   fullPath,
-                  chrome: chrome,
-                  syntax: syntax,
-                  onTap:  () => onCopyPath(fullPath),
-                ),
-              ],
+            _CopyPathButton(
+              path:   fullPath,
+              chrome: chrome,
+              syntax: syntax,
+              onTap:  () => onCopyPath(fullPath),
             ),
-          ),
-        );
-      },
+          ],
+        ),
+      ),
     );
   }
 }
@@ -841,10 +886,10 @@ class _FileTree extends StatelessWidget {
   final String                  searchQuery;
   final ScrollController?       scrollController;
   final _PathHoverNotifier      hoveredPathNotifier;
-  final void Function(ScriptFile)                               onOpenFile;
-  final Future<void> Function(BuildContext, Offset, ScriptFile) onContextMenu;
-  final Future<void> Function(String)                           onNewFile;
-  final Future<void> Function(String?)                          onNewFolder;
+  final void Function(ScriptFile)                                        onOpenFile;
+  final Future<void> Function(BuildContext, Offset, ScriptFile, String)  onContextMenu;
+  final Future<void> Function(String)                                    onNewFile;
+  final Future<void> Function(String?)                                   onNewFolder;
 
   const _FileTree({
     required this.hook,
@@ -862,7 +907,9 @@ class _FileTree extends StatelessWidget {
 
   bool _matchesSearch(ScriptFile file) {
     if (searchQuery.isEmpty) return true;
-    return file.name.toLowerCase().contains(searchQuery.toLowerCase());
+    final query    = searchQuery.toLowerCase();
+    final fileName = file.name.toLowerCase();
+    return fileName.contains(query);
   }
 
   bool _folderHasMatch(ScriptFolder folder) {
@@ -902,7 +949,7 @@ class _FileTree extends StatelessWidget {
 
     final filtered = searchQuery.isEmpty
         ? allRoots
-        : allRoots.where(_folderHasMatch).toList();
+        : allRoots.where((f) => _folderHasMatch(f)).toList();
 
     if (filtered.isEmpty && searchQuery.isNotEmpty) {
       return _NoResultsState(query: searchQuery, chrome: chrome, syntax: syntax);
@@ -915,8 +962,10 @@ class _FileTree extends StatelessWidget {
         padding:    const EdgeInsets.only(top: 4, bottom: 16),
         itemCount:  filtered.length,
         itemBuilder: (context, i) {
-          final root         = filtered[i];
-          final isSharedRoot = root.id.contains(EditorPermission.sharedOwnerId);
+          final root = filtered[i];
+
+          final sharedId     = EditorPermission.sharedOwnerId ?? '';
+          final isSharedRoot = sharedId.isNotEmpty && root.id.contains(sharedId);
 
           return FolderTreeTile(
             folder:         root,
@@ -931,10 +980,10 @@ class _FileTree extends StatelessWidget {
             onContextMenu:  onContextMenu,
             onNewFile:      onNewFile,
             onNewFolder:    onNewFolder,
-            matchesSearch:  _matchesSearch,
-            folderHasMatch: _folderHasMatch,
-            onHoverFolder:  _onHoverFolder,
-            onHoverFile:    _onHoverFile,
+            matchesSearch:  (f) => _matchesSearch(f),
+            folderHasMatch: (f) => _folderHasMatch(f),
+            onHoverFolder:  (f) => _onHoverFolder(f),
+            onHoverFile:    (f) => _onHoverFile(f),
           );
         },
       ),
@@ -998,6 +1047,9 @@ class _ExplorerFooter extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Empty states
+//
+//  v6: Column mainAxisSize.min, threshold 120px / 100px, ClipRect.
+//  v7: tidak ada perubahan di sini — guard sudah di level build().
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _EmptyState extends StatelessWidget {
@@ -1007,12 +1059,33 @@ class _EmptyState extends StatelessWidget {
   const _EmptyState({required this.chrome, required this.syntax});
 
   @override
-  Widget build(BuildContext context) => Center(
-    child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Icon(Icons.folder_open_outlined, size: 32, color: syntax.comment.withOpacity(0.3)),
-      const SizedBox(height: 8),
-      Text('No files yet', style: TextStyle(color: syntax.comment.withOpacity(0.4), fontSize: 12)),
-    ]),
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      if (constraints.maxHeight < 120) return const SizedBox.shrink();
+      return ClipRect(
+        child: Center(
+          child: Column(
+            mainAxisSize:      MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.folder_open_outlined,
+                size:  32,
+                color: syntax.comment.withOpacity(0.3),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'No files yet',
+                style: TextStyle(
+                  color:    syntax.comment.withOpacity(0.4),
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
   );
 }
 
@@ -1028,16 +1101,34 @@ class _NoResultsState extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Center(
-    child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Icon(Icons.search_off_rounded, size: 28, color: syntax.comment.withOpacity(0.3)),
-      const SizedBox(height: 8),
-      Text(
-        'No results for "$query"',
-        style:     TextStyle(color: syntax.comment.withOpacity(0.4), fontSize: 11),
-        textAlign: TextAlign.center,
-      ),
-    ]),
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      if (constraints.maxHeight < 100) return const SizedBox.shrink();
+      return ClipRect(
+        child: Center(
+          child: Column(
+            mainAxisSize:      MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.search_off_rounded,
+                size:  28,
+                color: syntax.comment.withOpacity(0.3),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'No results for "$query"',
+                style:     TextStyle(
+                  color:    syntax.comment.withOpacity(0.4),
+                  fontSize: 11,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+    },
   );
 }
 

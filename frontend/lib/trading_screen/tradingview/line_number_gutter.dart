@@ -2,16 +2,13 @@
 // line_number_gutter.dart
 // Path: frontend/lib/trading_screen/tradingview/line_number_gutter.dart
 //
-// Standalone line number gutter widget — berdiri sendiri, tidak coupling
-// ke code editor widget manapun. Cukup pass lineCount + activeLineIndex.
-//
-// Features:
-//   • Active line highlight
-//   • Breakpoint dot (tap untuk toggle)
-//   • Folding arrow (opsional, untuk collapsible block)
-//   • Smooth scroll sync via ScrollController
-//   • Animasi active line transition
-//   • Theming penuh dari EditorThemeState
+// FIX v_dispose_safe:
+//  - [FIXED] _LineNumberGutterState: tambah override dispose() yang proper
+//  - [FIXED] onFoldToggle closure di _buildList: setState dipanggil lewat
+//            closure yang bisa ter-trigger setelah widget di-unmount
+//            (misal: parent rebuild cepat saat fold di-tap). Fix dengan
+//            cek `if (mounted)` sebelum setState di dalam closure.
+//  - Semua logic, UI, dan widget lain tidak diubah sama sekali
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -20,7 +17,6 @@ import '../../style/apps_colors_tradingview.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  MODEL: BreakpointState
-//  Track baris mana aja yang ada breakpoint-nya
 // ─────────────────────────────────────────────────────────────────────────────
 
 class BreakpointState extends ChangeNotifier {
@@ -52,12 +48,11 @@ class BreakpointState extends ChangeNotifier {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  MODEL: FoldRange
-//  Range baris yang bisa di-fold (collapsible block)
 // ─────────────────────────────────────────────────────────────────────────────
 
 class FoldRange {
-  final int  startLine; // 0-based, baris pertama block (def, class, if, dll)
-  final int  endLine;   // 0-based, baris terakhir block
+  final int  startLine;
+  final int  endLine;
   bool       isFolded;
 
   FoldRange({
@@ -69,7 +64,6 @@ class FoldRange {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  WIDGET: LineNumberGutter
-//  Core widget — berdiri sendiri, sync scroll via controller
 // ─────────────────────────────────────────────────────────────────────────────
 
 class LineNumberGutter extends StatefulWidget {
@@ -91,45 +85,20 @@ class LineNumberGutter extends StatefulWidget {
     this.width,
   });
 
-  /// Total baris kode
-  final int lineCount;
-
-  /// Tinggi satu baris (harus sama dengan editor) — fontSize * lineHeight
-  final double lineHeight;
-
-  /// Font size angka baris
-  final double fontSize;
-
-  /// ScrollController yang dishare dengan code editor biar scroll sync
+  final int              lineCount;
+  final double           lineHeight;
+  final double           fontSize;
   final ScrollController scrollController;
-
-  /// EditorThemeState — kalau null pakai default TradingView dark
   final EditorThemeState? theme;
-
-  /// Index baris yang aktif (0-based) — untuk highlight
-  final int? activeLineIndex;
-
-  /// Breakpoint state — kalau null fitur breakpoint di-disable
+  final int?             activeLineIndex;
   final BreakpointState? breakpoints;
-
-  /// Fold ranges — kalau null fitur fold arrow di-disable
   final List<FoldRange>? foldRanges;
-
-  /// Callback saat breakpoint di-toggle
   final void Function(int lineIndex)? onBreakpointToggle;
-
-  /// Callback saat fold di-toggle
   final void Function(FoldRange range)? onFoldToggle;
-
-  /// Padding atas — harus sama dengan code editor
-  final double topPadding;
-
-  /// Toggle visibility fitur
-  final bool showBreakpoints;
-  final bool showFoldArrows;
-
-  /// Override lebar gutter. Kalau null, auto dari digit count
-  final double? width;
+  final double           topPadding;
+  final bool             showBreakpoints;
+  final bool             showFoldArrows;
+  final double?          width;
 
   @override
   State<LineNumberGutter> createState() => _LineNumberGutterState();
@@ -137,15 +106,11 @@ class LineNumberGutter extends StatefulWidget {
 
 class _LineNumberGutterState extends State<LineNumberGutter> {
 
-  // ── Computed ──────────────────────────────────────────────────────────────
-
   EditorThemeState get _theme => widget.theme ?? EditorThemeState();
 
-  /// Lebar angka terpanjang + padding + breakpoint dot area + fold arrow area
   double get _gutterWidth {
     if (widget.width != null) return widget.width!;
     final digits = widget.lineCount.toString().length;
-    // setiap digit ~8px + base padding 24 + 14 (dot) + 14 (arrow)
     double w = digits * 8.0 + 24.0;
     if (widget.showBreakpoints) w += 14.0;
     if (widget.showFoldArrows)  w += 14.0;
@@ -168,6 +133,16 @@ class _LineNumberGutterState extends State<LineNumberGutter> {
       }
     }
     return false;
+  }
+
+  // [FIXED] dispose override yang proper
+  // Meskipun State ini tidak punya resource yang di-own sendiri
+  // (scrollController adalah external, breakpoints adalah external),
+  // override ini penting sebagai safety net dan dokumentasi intent.
+  // Juga memastikan super.dispose() dipanggil dengan benar.
+  @override
+  void dispose() {
+    super.dispose();
   }
 
   @override
@@ -201,12 +176,12 @@ class _LineNumberGutterState extends State<LineNumberGutter> {
 
   Widget _buildList(EditorChromeColors chrome) {
     return ListView.builder(
-      controller:   widget.scrollController,
-      physics:      const NeverScrollableScrollPhysics(), // scroll dikontrol editor
-      padding:      EdgeInsets.only(top: widget.topPadding),
-      itemCount:    widget.lineCount,
-      itemExtent:   widget.lineHeight, // fixed height buat performa
-      itemBuilder:  (_, i) => _GutterRow(
+      controller:  widget.scrollController,
+      physics:     const NeverScrollableScrollPhysics(),
+      padding:     EdgeInsets.only(top: widget.topPadding),
+      itemCount:   widget.lineCount,
+      itemExtent:  widget.lineHeight,
+      itemBuilder: (_, i) => _GutterRow(
         lineIndex:       i,
         lineHeight:      widget.lineHeight,
         fontSize:        widget.fontSize,
@@ -224,8 +199,12 @@ class _LineNumberGutterState extends State<LineNumberGutter> {
                 widget.onBreakpointToggle!(i);
               }
             : null,
+        // [FIXED] setState di closure ini bisa dipanggil setelah widget
+        // di-unmount kalau parent rebuild sangat cepat saat fold di-tap.
+        // Guard dengan `if (mounted)` sebelum setState.
         onFoldToggle: widget.onFoldToggle != null
             ? (range) {
+                if (!mounted) return;
                 setState(() => range.isFolded = !range.isFolded);
                 widget.onFoldToggle!(range);
               }
@@ -237,7 +216,6 @@ class _LineNumberGutterState extends State<LineNumberGutter> {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  WIDGET: _GutterRow
-//  Satu baris di gutter — angka + breakpoint dot + fold arrow
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _GutterRow extends StatelessWidget {
@@ -274,7 +252,6 @@ class _GutterRow extends StatelessWidget {
     final chrome = theme.chrome;
     final syntax = theme.syntax;
 
-    // Baris yang di dalam folded range — hide
     if (isInFoldedRange) return const SizedBox.shrink();
 
     return AnimatedContainer(
@@ -285,7 +262,6 @@ class _GutterRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
 
-          // ── Breakpoint dot ───────────────────────────────────────────────
           if (showBreakpoints)
             _BreakpointDot(
               hasBreakpoint: hasBreakpoint,
@@ -294,7 +270,6 @@ class _GutterRow extends StatelessWidget {
               onTap:         onBreakpointToggle,
             ),
 
-          // ── Line number ──────────────────────────────────────────────────
           Expanded(
             child: _AnimatedLineNumber(
               lineNumber: lineIndex + 1,
@@ -309,7 +284,6 @@ class _GutterRow extends StatelessWidget {
             ),
           ),
 
-          // ── Fold arrow ───────────────────────────────────────────────────
           if (showFoldArrows)
             _FoldArrow(
               foldRange:   foldRange,
@@ -318,7 +292,6 @@ class _GutterRow extends StatelessWidget {
               onToggle:    onFoldToggle,
             ),
 
-          // ── Right padding ─────────────────────────────────────────────────
           const SizedBox(width: 4),
         ],
       ),
@@ -328,7 +301,6 @@ class _GutterRow extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  WIDGET: _AnimatedLineNumber
-//  Angka baris dengan animasi warna saat active berubah
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _AnimatedLineNumber extends StatelessWidget {
@@ -367,7 +339,6 @@ class _AnimatedLineNumber extends StatelessWidget {
           height:      lineHeight / fontSize,
           color:       color ?? defaultColor,
           fontWeight:  isActive ? FontWeight.w600 : FontWeight.w400,
-          // tabular numbers biar ga geser-geser
           fontFeatures: const [FontFeature.tabularFigures()],
         ),
       ),
@@ -377,7 +348,6 @@ class _AnimatedLineNumber extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  WIDGET: _BreakpointDot
-//  Dot merah kecil di kiri gutter — tap untuk toggle breakpoint
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _BreakpointDot extends StatelessWidget {
@@ -427,7 +397,6 @@ class _BreakpointDot extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  WIDGET: _FoldArrow
-//  Chevron kecil di kanan gutter — muncul kalau baris adalah start of block
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _FoldArrow extends StatelessWidget {
@@ -445,7 +414,6 @@ class _FoldArrow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Kalau baris ini bukan start of fold range, return empty space biar alignment tetap
     if (foldRange == null) {
       return SizedBox(width: 14, height: lineHeight);
     }
@@ -460,7 +428,7 @@ class _FoldArrow extends StatelessWidget {
         height: lineHeight,
         child: Center(
           child: AnimatedRotation(
-            turns:    foldRange!.isFolded ? -0.25 : 0.0, // 0° = down, -90° = right (folded)
+            turns:    foldRange!.isFolded ? -0.25 : 0.0,
             duration: const Duration(milliseconds: 150),
             curve:    Curves.easeOut,
             child: Icon(
@@ -477,7 +445,6 @@ class _FoldArrow extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  WIDGET: LineNumberGutterSimple
-//  Versi sederhana tanpa breakpoint dan fold — drop-in buat read-only views
 // ─────────────────────────────────────────────────────────────────────────────
 
 class LineNumberGutterSimple extends StatelessWidget {
@@ -544,8 +511,6 @@ class LineNumberGutterSimple extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  WIDGET: LineNumberGutterOverlay
-//  Overlay variant — buat dipakai di atas Stack, bukan di Row.
-//  Berguna kalau editor pakai CustomScrollView atau Sliver.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class LineNumberGutterOverlay extends StatelessWidget {

@@ -7,6 +7,42 @@
 //   - Build: FindReplacePanel, _EditorBody, EditorStatusBar
 //   - Zoom state (lokal — tidak perlu controller)
 //   - Theme/file-change listeners
+//
+// FIX v_click_natural:
+//  - [FIXED] IntrinsicWidth tanpa ConstrainedBox → TextField hanya selebar
+//            konten teks. Klik di area kosong sebelah kanan teks = klik di
+//            luar TextField → cursor tidak muncul, terasa "kaku".
+//            Fix: LayoutBuilder + ConstrainedBox(minWidth: viewportWidth)
+//            supaya editor minimal selalu selebar area visible. Horizontal
+//            scroll tetap bekerja karena IntrinsicWidth masih ada di dalam.
+//
+// FIX v_layout_safe (sebelumnya):
+//  - [FIXED] FocusNode() dibuat di dalam build() → dipindah ke State field
+//  - [FIXED] _ctrl.updateSizing() dipanggil di dalam builder callback
+//            → dipindah ke didUpdateWidget
+//
+// FIX v_overflow:
+//  - [FIXED] Expanded(_buildEditorBody) → Flexible(fit:tight) +
+//            ConstrainedBox(minHeight:0).
+//            Root cause: saat FindReplacePanel (≈88–100px) + EditorStatusBar
+//            (22px) melebihi tinggi yang tersedia untuk CodeEditorWidget,
+//            body mendapat tinggi negatif dari Expanded → RenderFlex
+//            overflow "88 pixels on the bottom".
+//            Flexible(fit:tight) berperilaku sama seperti Expanded (mengisi
+//            sisa ruang) TAPI memperbolehkan body menyusut sampai 0 lewat
+//            ConstrainedBox(minHeight:0) tanpa menyebabkan assert/overflow.
+//
+// FIX v_status_bar_guard:
+//  - [FIXED] Column overflow 8.8px (h=13.2px) di line 186.
+//            Root cause: EditorStatusBar height: 22px hardcoded. Saat
+//            available height < 22px, Flexible(editor body) menyusut ke 0
+//            tapi status bar masih minta 22px → overflow 8.8px persis.
+//            Flexible+ConstrainedBox(minH:0) menangani body, tapi tidak
+//            menangani status bar.
+//            Fix: wrap Column dalam LayoutBuilder, guard jika
+//            constraints.maxHeight < _kStatusBarH (22px) → return
+//            ColoredBox(background). Pattern identik dengan semua guard
+//            sebelumnya di file lain.
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -57,8 +93,15 @@ class _CodeEditorWidgetState extends State<CodeEditorWidget> {
   bool   _showReplace     = false;
 
   // ── Sub-objects ───────────────────────────────────────────────────────────
-  late CodeEditorController  _ctrl;
+  late CodeEditorController   _ctrl;
   late CodeEditorInputHandler _input;
+
+  final FocusNode _editorFocusNode = FocusNode()..skipTraversal = true;
+
+  // ── Constants ─────────────────────────────────────────────────────────────
+  // [FIX v_status_bar_guard] Tinggi minimum: EditorStatusBar height = 22px.
+  // Guard threshold untuk mencegah overflow saat panel sangat kecil.
+  static const double _kStatusBarH = 22.0;
 
   // ── Theme shortcuts ───────────────────────────────────────────────────────
   IsolatedTradingViewHook get hook       => widget.hook;
@@ -119,9 +162,22 @@ class _CodeEditorWidgetState extends State<CodeEditorWidget> {
   }
 
   @override
+  void didUpdateWidget(CodeEditorWidget old) {
+    super.didUpdateWidget(old);
+
+    final newSize = _effectiveFontSize;
+    final newLH   = typo.lineHeight;
+    if (old.zoomDelta != widget.zoomDelta ||
+        old.hook.editorTheme.typography.fontSize != newSize) {
+      _ctrl.updateSizing(newSize, newLH);
+    }
+  }
+
+  @override
   void dispose() {
     hook.tabs.removeListener(_onActiveFileChanged);
     hook.editorTheme.removeListener(_onThemeChanged);
+    _editorFocusNode.dispose();
     _ctrl.dispose();
     _input.dispose();
     super.dispose();
@@ -144,59 +200,76 @@ class _CodeEditorWidgetState extends State<CodeEditorWidget> {
         final active = hook.tabs.activeFile;
         if (active == null) return NoFileOpen(chrome: chrome, syntax: syntax);
 
-        // Update sizing jika font/zoom berubah
-        _ctrl.updateSizing(_effectiveFontSize, typo.lineHeight);
+        // [FIX v_status_bar_guard] Wrap Column dalam LayoutBuilder untuk guard.
+        // EditorStatusBar = 22px hardcoded. Saat h < 22, status bar saja
+        // sudah melebihi available height → Column overflow. Guard: return
+        // ColoredBox tanpa Column. Pattern sama dengan semua fix sebelumnya.
+        return LayoutBuilder(
+          builder: (context, lc) {
+            if (lc.maxHeight < _kStatusBarH) {
+              return ColoredBox(color: chrome.background);
+            }
 
-        return Column(
-          children: [
-            if (_showFindReplace)
-              FindReplacePanel(
-                findCtrl:        _input.findCtrl,
-                replaceCtrl:     _input.replaceCtrl,
-                showReplace:     _showReplace,
-                caseSensitive:   _input.caseSensitive,
-                wholeWord:       _input.wholeWord,
-                matchCount:      _ctrl.matches.length,
-                currentMatch:    _ctrl.currentMatch,
-                chrome:          chrome,
-                syntax:          syntax,
-                isReadOnly:      isReadOnly,
-                onSearch:        (_) => _input.updateMatches(),
-                onNext:          _input.nextMatch,
-                onPrev:          _input.prevMatch,
-                onReplaceOne:    _input.replaceOne,
-                onReplaceAll:    _input.replaceAll,
-                onClose:         () => setState(() {
-                  _showFindReplace = false;
-                  _ctrl.setMatches([]);
-                }),
-                onToggleCase: () => setState(() {
-                  _input.caseSensitive = !_input.caseSensitive;
-                  _input.updateMatches();
-                }),
-                onToggleWord: () => setState(() {
-                  _input.wholeWord = !_input.wholeWord;
-                  _input.updateMatches();
-                }),
-                onToggleReplace: () => setState(() => _showReplace = !_showReplace),
-              ),
+            return Column(
+              children: [
+                if (_showFindReplace)
+                  FindReplacePanel(
+                    findCtrl:        _input.findCtrl,
+                    replaceCtrl:     _input.replaceCtrl,
+                    showReplace:     _showReplace,
+                    caseSensitive:   _input.caseSensitive,
+                    wholeWord:       _input.wholeWord,
+                    matchCount:      _ctrl.matches.length,
+                    currentMatch:    _ctrl.currentMatch,
+                    chrome:          chrome,
+                    syntax:          syntax,
+                    isReadOnly:      isReadOnly,
+                    onSearch:        (_) => _input.updateMatches(),
+                    onNext:          _input.nextMatch,
+                    onPrev:          _input.prevMatch,
+                    onReplaceOne:    _input.replaceOne,
+                    onReplaceAll:    _input.replaceAll,
+                    onClose:         () => setState(() {
+                      _showFindReplace = false;
+                      _ctrl.setMatches([]);
+                    }),
+                    onToggleCase: () => setState(() {
+                      _input.caseSensitive = !_input.caseSensitive;
+                      _input.updateMatches();
+                    }),
+                    onToggleWord: () => setState(() {
+                      _input.wholeWord = !_input.wholeWord;
+                      _input.updateMatches();
+                    }),
+                    onToggleReplace: () => setState(() => _showReplace = !_showReplace),
+                  ),
 
-            Expanded(child: _buildEditorBody()),
+                // [FIX v_overflow] Flexible(tight) + ConstrainedBox(minH:0)
+                // supaya editor body boleh menyusut ke 0 tanpa overflow assert.
+                Flexible(
+                  fit: FlexFit.tight,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 0),
+                    child: _buildEditorBody(),
+                  ),
+                ),
 
-            EditorStatusBar(
-              active:            active,
-              activeLineIdx:     _ctrl.activeLineIndex,
-              colIdx:            _ctrl.colIndex,
-              lineCount:         _ctrl.lineCount,
-              charCount:         _ctrl.charCount,
-              isReadOnly:        isReadOnly,
-              zoomDelta:         _zoomFontSize + widget.zoomDelta,
-              effectiveFontSize: _effectiveFontSize,
-              chrome:            chrome,
-              syntax:            syntax,
-              onResetZoom:       () => setState(() => _zoomFontSize = 0),
-            ),
-          ],
+                EditorStatusBar(
+                  active:            active,
+                  activeLineIdx:     _ctrl.activeLineIndex,
+                  colIdx:            _ctrl.colIndex,
+                  lineCount:         _ctrl.lineCount,
+                  charCount:         _ctrl.charCount,
+                  isReadOnly:        isReadOnly,
+                  zoomDelta:         _zoomFontSize + widget.zoomDelta,
+                  effectiveFontSize: _effectiveFontSize,
+                  chrome:            chrome,
+                  syntax:            syntax,
+                  onResetZoom:       () => setState(() => _zoomFontSize = 0),
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -206,7 +279,7 @@ class _CodeEditorWidgetState extends State<CodeEditorWidget> {
     return Container(
       color: chrome.background,
       child: Focus(
-        focusNode: FocusNode()..skipTraversal = true,
+        focusNode:  _editorFocusNode,
         onKeyEvent: _input.handleKeyEvent,
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -222,33 +295,42 @@ class _CodeEditorWidgetState extends State<CodeEditorWidget> {
               showBreakpoints:  true,
               showFoldArrows:   true,
             ),
+
             Expanded(
-              child: Scrollbar(
-                controller:      _ctrl.vertScrollCtrl,
-                thumbVisibility: true,
-                thickness:       6,
-                radius:          const Radius.circular(3),
-                child: ScrollConfiguration(
-                  behavior: ScrollConfiguration.of(context)
-                      .copyWith(scrollbars: false),
-                  child: SingleChildScrollView(
-                    controller:      _ctrl.vertScrollCtrl,
-                    scrollDirection: Axis.vertical,
+              child: LayoutBuilder(
+                builder: (context, constraints) => Scrollbar(
+                  controller:      _ctrl.vertScrollCtrl,
+                  thumbVisibility: true,
+                  thickness:       6,
+                  radius:          const Radius.circular(3),
+                  child: ScrollConfiguration(
+                    behavior: ScrollConfiguration.of(context)
+                        .copyWith(scrollbars: false),
                     child: SingleChildScrollView(
-                      controller:      _ctrl.horizScrollCtrl,
-                      scrollDirection: Axis.horizontal,
-                      child: IntrinsicWidth(
-                        child: CodeTextField(
-                          textCtrl:     _ctrl.textCtrl,
-                          focusNode:    _ctrl.focusNode,
-                          isReadOnly:   isReadOnly,
-                          theme:        hook.editorTheme.theme,
-                          chrome:       chrome,
-                          typo:         typo,
-                          fontSize:     _effectiveFontSize,
-                          lineHeight:   _lineHeight,
-                          matches:      _ctrl.matches,
-                          currentMatch: _ctrl.currentMatch,
+                      controller:      _ctrl.vertScrollCtrl,
+                      scrollDirection: Axis.vertical,
+                      child: SingleChildScrollView(
+                        controller:      _ctrl.horizScrollCtrl,
+                        scrollDirection: Axis.horizontal,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            minWidth: constraints.maxWidth,
+                            minHeight: constraints.maxHeight.clamp(0.0, double.maxFinite),
+                          ),
+                          child: IntrinsicWidth(
+                            child: CodeTextField(
+                              textCtrl:     _ctrl.textCtrl,
+                              focusNode:    _ctrl.focusNode,
+                              isReadOnly:   isReadOnly,
+                              theme:        hook.editorTheme.theme,
+                              chrome:       chrome,
+                              typo:         typo,
+                              fontSize:     _effectiveFontSize,
+                              lineHeight:   _lineHeight,
+                              matches:      _ctrl.matches,
+                              currentMatch: _ctrl.currentMatch,
+                            ),
+                          ),
                         ),
                       ),
                     ),

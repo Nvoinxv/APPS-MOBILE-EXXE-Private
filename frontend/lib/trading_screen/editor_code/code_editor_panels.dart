@@ -8,6 +8,26 @@ import '../../models/script_file.dart';
 //   - NoFileOpen placeholder
 //   - Small reusable widgets: PanelInput, PanelIconBtn, PanelTextBtn,
 //     StatusText, StatusChip
+//
+// FIX overflow:
+//   NoFileOpen Column sebelumnya pakai mainAxisSize: MainAxisSize.max
+//   (default), menyebabkan overflow saat height < ~100px (icon 48 +
+//   gap 12 + text 14 + gap 4 + text 12 + padding center).
+//
+//   Solusi:
+//     1. Column pakai mainAxisSize: MainAxisSize.min.
+//     2. LayoutBuilder guard — kalau availH < 110px, render versi compact
+//        (teks saja, tanpa icon). Kalau < 40px, SizedBox.shrink().
+//     3. ClipRect di luar Center sebagai hard-clip safety net.
+//
+//   FIX v2: Threshold icon dinaikkan dari 90px → 110px.
+//     Root cause overflow 7.9px (h=93.1):
+//       Threshold 90 lolos di h=93.1, tapi actual content icon block:
+//         48 (icon) + 12 (gap) + ~18 ("No file open" fontSize 14) +
+//         4 (gap) + ~16 ("Select a file" fontSize 12) ≈ 98px > 93.1px
+//       → overflow 7.9px persis sesuai log.
+//       Naik ke 110 memberi margin aman tanpa mengubah perilaku di normal
+//       height (biasanya ratusan px).
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -83,7 +103,7 @@ class FindReplacePanel extends StatelessWidget {
                   suffix: matchCount > 0
                       ? Text('${currentMatch + 1}/$matchCount',
                           style: TextStyle(
-                            color:    syntax.comment.withOpacity(0.55),
+                            color:    syntax.comment.withValues(alpha: 0.55),
                             fontSize: 10,
                           ))
                       : null,
@@ -209,7 +229,7 @@ class EditorStatusBar extends StatelessWidget {
               text:  '${effectiveFontSize.toStringAsFixed(0)}px'
                      '${zoomDelta != 0 ? " (reset)" : ""}',
               syntax: syntax,
-              color: zoomDelta != 0 ? chrome.cursorColor.withOpacity(0.7) : null,
+              color: zoomDelta != 0 ? chrome.cursorColor.withValues(alpha: 0.7) : null,
             ),
           ),
         ],
@@ -220,6 +240,18 @@ class EditorStatusBar extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  NoFileOpen
+//
+//  FIX v2: Threshold icon dinaikkan 90 → 110px.
+//    Actual content dengan icon:
+//      48 (icon) + 12 (gap) + ~18 (text fontSize 14) + 4 + ~16 (text fontSize 12)
+//      ≈ 98px. Threshold 90 lolos di h=93.1 → overflow 7.9px.
+//      Threshold 110 memberi margin 12px di atas konten aktual.
+//
+//  Guard tiers:
+//    - h >= 110 → full (icon + 2 teks)
+//    - h >= 40  → compact (2 teks saja, tanpa icon)
+//    - h <  40  → SizedBox.shrink()
+//  ClipRect sebagai hard-clip safety net.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class NoFileOpen extends StatelessWidget {
@@ -230,26 +262,50 @@ class NoFileOpen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     color: chrome.background,
-    child: Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.code_rounded, size: 48, color: syntax.comment.withOpacity(0.2)),
-          const SizedBox(height: 12),
-          Text('No file open',
-              style: TextStyle(
-                color:      syntax.comment.withOpacity(0.35),
-                fontSize:   14,
-                fontWeight: FontWeight.w600,
-              )),
-          const SizedBox(height: 4),
-          Text('Select a file from the explorer',
-              style: TextStyle(
-                color:    syntax.comment.withOpacity(0.2),
-                fontSize: 12,
-              )),
-        ],
-      ),
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final h = constraints.maxHeight;
+
+        // Terlalu sempit — tidak render apapun.
+        if (h < 40) return const SizedBox.shrink();
+
+        return ClipRect(
+          child: Center(
+            child: Column(
+              mainAxisSize:      MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // FIX v2: threshold dinaikkan 90 → 110.
+                // Konten icon block ≈ 98px; threshold 110 memberi margin aman.
+                if (h >= 110) ...[
+                  Icon(
+                    Icons.code_rounded,
+                    size:  48,
+                    color: syntax.comment.withValues(alpha: 0.2),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                Text(
+                  'No file open',
+                  style: TextStyle(
+                    color:      syntax.comment.withValues(alpha: 0.35),
+                    fontSize:   14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Select a file from the explorer',
+                  style: TextStyle(
+                    color:    syntax.comment.withValues(alpha: 0.2),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     ),
   );
 }
@@ -301,7 +357,7 @@ class PanelInput extends StatelessWidget {
         suffixIconConstraints: const BoxConstraints(maxHeight: 28),
         border:        OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: BorderSide(color: chrome.gutterBorder)),
         enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: BorderSide(color: chrome.gutterBorder)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: BorderSide(color: chrome.cursorColor.withOpacity(0.6))),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: BorderSide(color: chrome.cursorColor.withValues(alpha: 0.6))),
       ),
     ),
   );
@@ -343,7 +399,9 @@ class _PanelIconBtnState extends State<PanelIconBtn> {
           duration: const Duration(milliseconds: 100),
           width:  26, height: 26,
           decoration: BoxDecoration(
-            color:        widget.active || _hovered ? widget.color.withOpacity(0.12) : Colors.transparent,
+            color:        widget.active || _hovered
+                ? widget.color.withValues(alpha: 0.12)
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(4),
           ),
           child: Icon(widget.icon, size: 14, color: widget.color),
@@ -373,9 +431,9 @@ class PanelTextBtn extends StatelessWidget {
     child: Container(
       padding:    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color:        color.withOpacity(0.10),
+        color:        color.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(5),
-        border:       Border.all(color: color.withOpacity(0.3)),
+        border:       Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Text(label,
           style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600)),
@@ -385,13 +443,13 @@ class PanelTextBtn extends StatelessWidget {
 
 class StatusText extends StatelessWidget {
   const StatusText({super.key, required this.text, required this.syntax, this.color});
-  final String           text;
+  final String             text;
   final EditorSyntaxColors syntax;
-  final Color?           color;
+  final Color?             color;
 
   @override
   Widget build(BuildContext context) => Text(text,
-      style: TextStyle(color: color ?? syntax.comment.withOpacity(0.45), fontSize: 10.5));
+      style: TextStyle(color: color ?? syntax.comment.withValues(alpha: 0.45), fontSize: 10.5));
 }
 
 class StatusChip extends StatelessWidget {
@@ -404,9 +462,9 @@ class StatusChip extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
     decoration: BoxDecoration(
-      color:        color.withOpacity(0.10),
+      color:        color.withValues(alpha: 0.10),
       borderRadius: BorderRadius.circular(4),
-      border:       Border.all(color: color.withOpacity(0.25)),
+      border:       Border.all(color: color.withValues(alpha: 0.25)),
     ),
     child: Text(label,
         style: TextStyle(

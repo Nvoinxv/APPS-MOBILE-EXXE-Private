@@ -176,3 +176,7 @@ class SendOTPRequest(BaseModel):
         if not re.match(email_pattern, v):
             raise ValueError('Format email tidak valid')
         return v
+    
+class RefreshTokenRequest(BaseModel):
+    """Request body untuk refresh access token"""
+    refresh_token: str = Field(..., min_length=10)

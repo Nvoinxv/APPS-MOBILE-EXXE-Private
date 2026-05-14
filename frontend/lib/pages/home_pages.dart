@@ -92,7 +92,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
       // Step 2: Fetch fresh dari GET /profile (source of truth)
       // Ini update display_name, description, photo yang mungkin baru diubah
-      final serverData = await getProfileHook(token: widget.token);
+      final serverData = await getProfileHook();
       if (serverData != null && mounted) {
         setState(() {
           _email           = serverData['email']            ?? _email;

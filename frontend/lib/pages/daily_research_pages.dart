@@ -51,7 +51,6 @@ class _DailyResearchSectionState extends State<DailyResearchSection> {
 
     try {
       final result = await Daily_Research_Exclusive_Hook.GetAllDailyResearch(
-        token: widget.token,
       );
 
       if (result['success'] == true) {

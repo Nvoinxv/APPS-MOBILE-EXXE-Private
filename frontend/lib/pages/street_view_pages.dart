@@ -1,29 +1,31 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart'; // ← Untuk PointerDeviceKind
 import '../hooks/crypto_data_hook.dart';
 import '../style/apps_street_view_colors.dart';
 import '../trading_screen/tradeview_screen.dart';
 import '../utils/role_guard.dart'; // ← TAMBAH INI
- 
+
 class CryptoStreetViewSection extends StatefulWidget {
   final String token; // ← TAMBAH PARAMETER TOKEN
- 
+
   const CryptoStreetViewSection({
     super.key,
     required this.token, // ← WAJIB DIISI
   });
- 
+
   @override
   State<CryptoStreetViewSection> createState() =>
       _CryptoStreetViewSectionState();
 }
- 
+
 class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
   late CryptoDataHook cryptoHook;
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _horizontalScrollController = ScrollController(); // ← TAMBAH SCROLL CONTROLLER
   List<String> filteredTickers = [];
   bool isInitialized = false;
   String selectedInterval = '15m';
- 
+
   @override
   void initState() {
     super.initState();
@@ -31,14 +33,14 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
     _searchController.addListener(_filterCoins);
     filteredTickers = TokoCryptoPairs.top100;
   }
- 
+
   void _initializeCryptoData() {
     cryptoHook = CryptoDataHook(
       tickers: TokoCryptoPairs.top100,
       intervals: Timeframes.common,
       autoUpdateInterval: 60,
     );
- 
+
     cryptoHook.onDataUpdate = (ticker, interval, candles) {
       if (!mounted) return;
       if (interval == selectedInterval) {
@@ -47,19 +49,19 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
         });
       }
     };
- 
+
     cryptoHook.onError = (ticker, interval, error) {
       print('❌ Error $ticker $interval: $error');
     };
- 
+
     cryptoHook.onAllDataReady = () {
       if (mounted) print('✅ All timeframes ready');
     };
- 
+
     cryptoHook.startAdaptiveUpdate();
     setState(() => isInitialized = true);
   }
- 
+
   void _filterCoins() {
     final query = _searchController.text.toLowerCase();
     setState(() {
@@ -73,11 +75,11 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
       }
     });
   }
- 
+
   void _changeInterval(String newInterval) {
     setState(() => selectedInterval = newInterval);
   }
- 
+
   // ─── Navigasi ke Trade View ───────────────────────────────────────────────
   // RoleGuard sudah dipasang di main.dart, tapi kalau navigate
   // langsung via push (bukan named route), bungkus juga di sini
@@ -93,16 +95,16 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
       ),
     );
   }
- 
+
   @override
   void dispose() {
     cryptoHook.dispose();
     _searchController.dispose();
+    _horizontalScrollController.dispose(); // ← DISPOSE CONTROLLER
     super.dispose();
   }
- 
+
   // ─── Build ────────────────────────────────────────────────────────────────
-  // (Konten build() TIDAK BERUBAH — hanya _openTradingView yang dipatch)
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -174,9 +176,9 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
             ],
           ),
         ),
- 
+
         const SizedBox(height: 32),
- 
+
         if (!isInitialized)
           SizedBox(
             height: 320,
@@ -242,40 +244,96 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
             ),
           )
         else
+          // ─── FIX SCROLL: Wrap dengan NotificationListener untuk
+          // mencegah event scroll horizontal "bocor" ke parent vertical ───
           SizedBox(
-            height: 320,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 48),
-              itemCount: filteredTickers.length,
-              itemBuilder: (context, index) {
-                final ticker = filteredTickers[index];
-                final candles =
-                    cryptoHook.getCandles(ticker, selectedInterval);
-                final isReady =
-                    cryptoHook.isIntervalReady(ticker, selectedInterval);
- 
-                return Padding(
-                  padding: EdgeInsets.only(
-                    right: index < filteredTickers.length - 1 ? 20 : 0,
+            height: 340, // ← Sedikit lebih tinggi untuk kasih ruang hover
+            child: NotificationListener<ScrollNotification>(
+              // Consume scroll notification supaya tidak propagate ke parent
+              onNotification: (notification) => true,
+              child: ScrollConfiguration(
+                // ← Aktifkan drag scroll di semua platform (desktop/web/mobile)
+                behavior: ScrollConfiguration.of(context).copyWith(
+                  dragDevices: {
+                    PointerDeviceKind.touch,
+                    PointerDeviceKind.mouse,
+                    PointerDeviceKind.trackpad,
+                  },
+                ),
+                child: ListView.builder(
+                  controller: _horizontalScrollController,
+                  scrollDirection: Axis.horizontal,
+                  // ← ClampingScrollPhysics lebih responsif & natural untuk card list
+                  physics: const ClampingScrollPhysics(),
+                  padding: const EdgeInsets.only(
+                    left: 48,
+                    right: 48,
+                    top: 8,   // ← Ruang untuk efek hover (card naik ke atas)
+                    bottom: 8,
                   ),
-                  child: _CryptoCard(
-                    ticker: ticker,
-                    candles: candles,
-                    index: index,
-                    isReady: isReady,
-                    interval: selectedInterval,
-                    onTap: () => _openTradingView(ticker),
-                  ),
-                );
-              },
+                  itemCount: filteredTickers.length,
+                  itemBuilder: (context, index) {
+                    final ticker = filteredTickers[index];
+                    final candles =
+                        cryptoHook.getCandles(ticker, selectedInterval);
+                    final isReady =
+                        cryptoHook.isIntervalReady(ticker, selectedInterval);
+
+                    return Padding(
+                      padding: EdgeInsets.only(
+                        right: index < filteredTickers.length - 1 ? 20 : 0,
+                      ),
+                      child: _CryptoCard(
+                        ticker: ticker,
+                        candles: candles,
+                        index: index,
+                        isReady: isReady,
+                        interval: selectedInterval,
+                        onTap: () => _openTradingView(ticker),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+
+        // ─── Scroll Indicator (opsional tapi bantu UX) ───────────────────
+        if (isInitialized && filteredTickers.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 12, right: 48),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: _buildScrollHint(),
             ),
           ),
       ],
     );
   }
- 
+
+  // ─── Scroll hint kecil biar user tahu bisa scroll ──────────────────────
+  Widget _buildScrollHint() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          Icons.swipe,
+          color: StreetViewColorStyle.subtitleText.withOpacity(0.4),
+          size: 14,
+        ),
+        const SizedBox(width: 4),
+        Text(
+          'Swipe to explore',
+          style: TextStyle(
+            color: StreetViewColorStyle.subtitleText.withOpacity(0.4),
+            fontSize: 11,
+            letterSpacing: 0.3,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildSearchBar() {
     return Container(
       width: 320,
@@ -322,7 +380,7 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
       ),
     );
   }
- 
+
   Widget _buildStatsChip() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -355,7 +413,7 @@ class _CryptoStreetViewSectionState extends State<CryptoStreetViewSection> {
       ),
     );
   }
- 
+
   Widget _buildIntervalSelector() {
     return Container(
       padding: const EdgeInsets.all(4),
@@ -430,7 +488,7 @@ class _CryptoCardState extends State<_CryptoCard> {
   Widget build(BuildContext context) {
     final coinName = widget.ticker.replaceAll('-USDT', '');
     final hasData = widget.candles != null && widget.candles!.isNotEmpty;
-    
+
     double currentPrice = 0;
     double priceChange = 0;
     double priceChangePercent = 0;
@@ -441,12 +499,12 @@ class _CryptoCardState extends State<_CryptoCard> {
     if (hasData) {
       final latestCandle = widget.candles!.last;
       currentPrice = latestCandle.close;
-      
+
       if (widget.candles!.length > 1) {
         final firstCandle = widget.candles!.first;
         priceChange = currentPrice - firstCandle.open;
         priceChangePercent = (priceChange / firstCandle.open) * 100;
-        
+
         high24h = widget.candles!.map((c) => c.high).reduce((a, b) => a > b ? a : b);
         low24h = widget.candles!.map((c) => c.low).reduce((a, b) => a < b ? a : b);
         volume24h = widget.candles!.map((c) => c.volume).reduce((a, b) => a + b);
@@ -460,7 +518,11 @@ class _CryptoCardState extends State<_CryptoCard> {
       onEnter: (_) => setState(() => isHovered = true),
       onExit: (_) => setState(() => isHovered = false),
       child: GestureDetector(
-        onTap: widget.onTap, // TRIGGER NAVIGATION
+        // ─── FIX: Gunakan onTapUp bukan onTap supaya tidak
+        // conflict dengan drag gesture scroll horizontal ──────
+        onTapUp: (_) => widget.onTap(),
+        // Behaviour: drag kecil (< threshold) = tap, drag besar = scroll
+        behavior: HitTestBehavior.opaque,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeOutCubic,
@@ -471,7 +533,7 @@ class _CryptoCardState extends State<_CryptoCard> {
             gradient: StreetViewColorStyle.cardGradient,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: isHovered 
+              color: isHovered
                   ? StreetViewColorStyle.greenNeon.withOpacity(0.4)
                   : StreetViewColorStyle.searchBorder,
               width: isHovered ? 1.5 : 1,
@@ -557,7 +619,7 @@ class _CryptoCardState extends State<_CryptoCard> {
                         ],
                       ),
                     ),
-                    
+
                     // Status Indicator
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -565,7 +627,7 @@ class _CryptoCardState extends State<_CryptoCard> {
                         vertical: 3,
                       ),
                       decoration: BoxDecoration(
-                        color: widget.isReady 
+                        color: widget.isReady
                             ? StreetViewColorStyle.greenNeon.withOpacity(0.15)
                             : Colors.grey.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(5),
@@ -577,7 +639,7 @@ class _CryptoCardState extends State<_CryptoCard> {
                             width: 5,
                             height: 5,
                             decoration: BoxDecoration(
-                              color: widget.isReady 
+                              color: widget.isReady
                                   ? StreetViewColorStyle.greenNeon
                                   : Colors.grey,
                               shape: BoxShape.circle,
@@ -587,7 +649,7 @@ class _CryptoCardState extends State<_CryptoCard> {
                           Text(
                             widget.isReady ? 'LIVE' : 'LOAD',
                             style: TextStyle(
-                              color: widget.isReady 
+                              color: widget.isReady
                                   ? StreetViewColorStyle.greenNeon
                                   : Colors.grey,
                               fontSize: 9,
@@ -600,9 +662,9 @@ class _CryptoCardState extends State<_CryptoCard> {
                     ),
                   ],
                 ),
-                
+
                 const SizedBox(height: 16),
-                
+
                 // Price Section
                 if (hasData) ...[
                   Column(
@@ -624,7 +686,7 @@ class _CryptoCardState extends State<_CryptoCard> {
                           vertical: 4,
                         ),
                         decoration: BoxDecoration(
-                          color: isPositive 
+                          color: isPositive
                               ? Colors.green.withOpacity(0.1)
                               : Colors.red.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(6),
@@ -651,9 +713,9 @@ class _CryptoCardState extends State<_CryptoCard> {
                       ),
                     ],
                   ),
-                  
+
                   const SizedBox(height: 16),
-                  
+
                   // Stats Grid - Compact
                   Container(
                     padding: const EdgeInsets.all(12),

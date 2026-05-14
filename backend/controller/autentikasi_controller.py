@@ -18,7 +18,11 @@ import logging
 import re
 from dateutil.relativedelta import relativedelta
 import hashlib, random, string
-from middleware.jwt_dependency import get_current_user, create_access_token, require_admin
+from middleware.jwt_dependency import (
+    get_current_user, create_access_token, create_refresh_token,
+    refresh_access_token, require_admin
+)
+from model.user_model import UserModel, UserRole, RegisterRequest, LoginRequest, RefreshTokenRequest
 
 router_autentikasi = APIRouter()
 
@@ -103,12 +107,19 @@ def register(user: RegisterRequest):
             "role": role,
         })
 
+        refresh_token = create_refresh_token({  # tambah ini
+            "user_id": new_user_id,
+            "email": email,
+            "role": role,
+        })
+
         logging.info(f"User registered successfully: {email} (id={new_user_id})")
 
         return {
             "message": "User berhasil terdaftar",
             # ✅ Token dikembalikan — Flutter butuh ini untuk step opsional
             "access_token": access_token,
+            "refresh_token": refresh_token,
             "user": {
                 "id": new_user_id,
                 "name": name,
@@ -328,10 +339,17 @@ def login(credentials: LoginRequest, request: Request):
                     "role": role
                 })
 
+                refresh_token = create_refresh_token({  # tambah ini
+                    "user_id": user_id,
+                    "email": email,
+                    "role": role
+                })
+
                 return {
                     "success": True,
                     "message": "Login berhasil",
                     "access_token": access_token,
+                    "refresh_token": refresh_token,
                     "user": {
                         "id": user_id,
                         "name": user_name,
@@ -364,6 +382,19 @@ def login(credentials: LoginRequest, request: Request):
     finally:
         connection.close_connection()
 
+@router_autentikasi.post("/refresh")
+def refresh_token(body: RefreshTokenRequest):
+    """
+    Generate access token baru dari refresh token.
+    Client kirim refresh token → dapat access token + refresh token baru.
+    """
+    try:
+        result = refresh_access_token(body.refresh_token)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 def check_permission(role, required_role):
     """
@@ -379,3 +410,4 @@ def check_permission(role, required_role):
     if role == UserRole.EXCLUSIVE and required_role == UserRole.EXCLUSIVE:
         return True
     return False
+

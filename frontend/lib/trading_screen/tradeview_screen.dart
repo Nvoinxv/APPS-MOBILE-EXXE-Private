@@ -84,6 +84,10 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
 
   static const double _minBottom = 48.0;
 
+  // Thickness ResizableDivider default = 6px — dipakai untuk hitung
+  // available height yang akurat di _buildChartArea.
+  static const double _dividerThickness = 6.0;
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Lifecycle
   // ═══════════════════════════════════════════════════════════════════════════
@@ -247,8 +251,6 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
   void _openCodeEditor() {
     setState(() {
       _bottomExpanded = true;
-      // Kalau panel terlalu kecil (collapsed / belum pernah dibuka),
-      // snap ke tinggi default supaya langsung keliatan
       if (_bottomHeight < _minBottom * 2) {
         _bottomHeight = 220.0;
       }
@@ -340,14 +342,14 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
 
     final state = _controller.state;
     if (!state.isRiskRatioMode && !_isFibonacciMode && _activePointers.length == 1) {
-      _controller.applyPanDelta(e.delta.dx, 0);
+      _controller.applyPanDelta(e.delta.dx, e.delta.dy);
     }
 
     if ((state.isRiskRatioMode || _isFibonacciMode) && _activePointers.length == 1) {
-      final rrHit  = _rrVisible  && _rrOwnsImmediately(pos);
-      final fibHit = _fibVisible && _fibOwnsImmediately(pos);
-      if (!rrHit && !fibHit) _controller.applyPanDelta(e.delta.dx, 0);
-    }
+  final rrHit  = _rrVisible  && _rrOwnsImmediately(pos);
+  final fibHit = _fibVisible && _fibOwnsImmediately(pos);
+  if (!rrHit && !fibHit) _controller.applyPanDelta(e.delta.dx, e.delta.dy);
+}
 
     if (state.showCrosshair && !state.isRiskRatioMode && !_isFibonacciMode) {
       _crosshairNotifier.value = pos;
@@ -567,6 +569,11 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
         final maxBottom  = totalH * 0.80;
         final halfBottom = totalH * 0.40;
 
+        // [FIX] Koreksi _bottomHeight sesegera mungkin tanpa menunggu
+        // postFrameCallback: jika nilai saat ini melebihi maxBottom yang
+        // dihitung dari totalH baru (mis. window resize / panel diperkecil),
+        // jadwalkan setState dan sekaligus clamp di render (lihat
+        // AnimatedContainer di bawah) supaya frame ini tidak overflow.
         if (_bottomHeight > maxBottom) {
           SchedulerBinding.instance.addPostFrameCallback((_) {
             if (mounted) setState(() => _bottomHeight = maxBottom);
@@ -749,10 +756,21 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
               ),
             ),
 
+            // [FIX] Clamp _bottomHeight di sini secara SINKRON saat render.
+            // Root cause overflow 3px: postFrameCallback koreksinya async
+            // (frame berikutnya), sehingga frame ini AnimatedContainer masih
+            // menggunakan _bottomHeight lama yang melebihi maxBottom yang baru
+            // (terjadi saat window resize / layout berubah tiba-tiba).
+            // Solusi: _bottomHeight.clamp(0, maxBottom) langsung di sini
+            // memastikan Column tidak pernah overflow pada frame manapun,
+            // sementara postFrameCallback tetap dipertahankan untuk mengupdate
+            // state agar nilai tersimpan juga ikut terkoreksi.
             AnimatedContainer(
               duration: const Duration(milliseconds: 160),
               curve:    Curves.easeOut,
-              height:   _bottomExpanded ? _bottomHeight : 0.0,
+              height:   _bottomExpanded
+                  ? _bottomHeight.clamp(0.0, maxBottom)  // ← FIX: clamp sinkron
+                  : 0.0,
               child: ClipRect(
                 child: _buildBottomPanel(style),
               ),
@@ -794,7 +812,7 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
         _riskRatioKey.currentState?.setMode(state.riskRatioMode);
       },
       onSettings:       _showStyleSettings,
-      onOpenCodeEditor: _openCodeEditor, // ← tambahan ini aja
+      onOpenCodeEditor: _openCodeEditor,
       onReset: () {
         _controller.resetViewport();
         _riskRatioKey.currentState?.clearRiskRatio();

@@ -2,8 +2,13 @@
 // console_widgets.dart
 // Path: frontend/lib/trading_screen/tradingview/console_widgets.dart
 //
-// Semua widget private untuk OutputConsolePanel.
-// Import file ini dari output_console_panel.dart saja — jangan dari tempat lain.
+// FIX v_remove_terminal:
+//  - [REMOVED] TerminalTab class dihapus — tidak dipakai lagi.
+//  - Semua widget lain IDENTIK.
+//
+// FIX overflow:
+//  - EmptyConsole: raised height guard from 48 → 80 to prevent RenderFlex
+//    overflow when constraints.maxHeight is between ~48–80px (e.g. 52.7px).
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -13,7 +18,7 @@ import '../../../hooks/execute_hook.dart';
 import '../../../style/apps_colors_tradingview.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  _ConsoleHeader
+//  ConsoleHeader
 // ─────────────────────────────────────────────────────────────────────────────
 
 class ConsoleHeader extends StatelessWidget {
@@ -80,11 +85,11 @@ class ConsoleHeader extends StatelessWidget {
           ),
         ),
         Row(mainAxisSize: MainAxisSize.min, children: [
-          ConsoleIconBtn(icon: Icons.filter_list_rounded,          chrome: chrome, syntax: syntax, active: console.filter != null, tooltip: 'Filter logs',                                    onTap: () => _showFilterMenu(context)),
-          ConsoleIconBtn(icon: Icons.access_time_rounded,          chrome: chrome, syntax: syntax, active: showTimestamps,          tooltip: showTimestamps ? 'Hide timestamps' : 'Show timestamps', onTap: onToggleTimestamps),
-          ConsoleIconBtn(icon: Icons.vertical_align_bottom_rounded, chrome: chrome, syntax: syntax, active: autoScroll,             tooltip: autoScroll ? 'Auto-scroll ON' : 'Auto-scroll OFF', onTap: onToggleScroll),
-          ConsoleIconBtn(icon: Icons.copy_outlined,                chrome: chrome, syntax: syntax,                                  tooltip: 'Copy all output',                                onTap: onCopy),
-          ConsoleIconBtn(icon: Icons.delete_sweep_outlined,        chrome: chrome, syntax: syntax,                                  tooltip: 'Clear console',                                  onTap: onClear),
+          ConsoleIconBtn(icon: Icons.filter_list_rounded,           chrome: chrome, syntax: syntax, active: console.filter != null, tooltip: 'Filter logs',                                     onTap: () => _showFilterMenu(context)),
+          ConsoleIconBtn(icon: Icons.access_time_rounded,           chrome: chrome, syntax: syntax, active: showTimestamps,          tooltip: showTimestamps ? 'Hide timestamps' : 'Show timestamps', onTap: onToggleTimestamps),
+          ConsoleIconBtn(icon: Icons.vertical_align_bottom_rounded, chrome: chrome, syntax: syntax, active: autoScroll,              tooltip: autoScroll ? 'Auto-scroll ON' : 'Auto-scroll OFF',  onTap: onToggleScroll),
+          ConsoleIconBtn(icon: Icons.copy_outlined,                 chrome: chrome, syntax: syntax,                                  tooltip: 'Copy all output',                                 onTap: onCopy),
+          ConsoleIconBtn(icon: Icons.delete_sweep_outlined,         chrome: chrome, syntax: syntax,                                  tooltip: 'Clear console',                                   onTap: onClear),
         ]),
       ]),
     );
@@ -136,7 +141,7 @@ class ConsoleHeader extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  OutputTab — FIX: nampilkan output yang benar, bukan raw source
+//  OutputTab
 // ─────────────────────────────────────────────────────────────────────────────
 
 class OutputTab extends StatelessWidget {
@@ -235,29 +240,7 @@ class ProblemsTab extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  TerminalTab
-// ─────────────────────────────────────────────────────────────────────────────
-
-class TerminalTab extends StatelessWidget {
-  final EditorChromeColors chrome;
-  final EditorSyntaxColors syntax;
-
-  const TerminalTab({super.key, required this.chrome, required this.syntax});
-
-  @override
-  Widget build(BuildContext context) => Center(
-    child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Icon(Icons.terminal_rounded, size: 32, color: syntax.comment.withOpacity(0.2)),
-      const SizedBox(height: 10),
-      Text('Terminal', style: TextStyle(color: syntax.plain.withOpacity(0.3), fontSize: 13, fontWeight: FontWeight.w600)),
-      const SizedBox(height: 4),
-      Text('Coming soon', style: TextStyle(color: syntax.comment.withOpacity(0.25), fontSize: 11)),
-    ]),
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  ConsoleLine — satu baris log dengan hover + copy
+//  ConsoleLine
 // ─────────────────────────────────────────────────────────────────────────────
 
 class ConsoleLine extends StatefulWidget {
@@ -322,7 +305,6 @@ class _ConsoleLineState extends State<ConsoleLine> {
           color:    _isHovered ? widget.chrome.surface.withOpacity(0.4) : Colors.transparent,
           padding:  const EdgeInsets.symmetric(horizontal: 12, vertical: 1.5),
           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            // Line number
             SizedBox(
               width: 36,
               child: Text(
@@ -332,13 +314,11 @@ class _ConsoleLineState extends State<ConsoleLine> {
               ),
             ),
             const SizedBox(width: 8),
-            // Level icon
             if (icon != null) ...[
               Padding(padding: const EdgeInsets.only(top: 1), child: Icon(icon, size: 12, color: color)),
               const SizedBox(width: 6),
             ] else
               const SizedBox(width: 18),
-            // Timestamp (optional)
             if (widget.showTimestamp) ...[
               Text(
                 _timeStr(widget.log.timestamp),
@@ -346,14 +326,12 @@ class _ConsoleLineState extends State<ConsoleLine> {
               ),
               const SizedBox(width: 8),
             ],
-            // Message — SelectableText biar bisa di-select user
             Expanded(
               child: SelectableText(
                 widget.log.message,
                 style: TextStyle(color: color, fontSize: 12, fontFamily: 'monospace', height: 1.55),
               ),
             ),
-            // Copy icon on hover
             if (_isHovered)
               GestureDetector(
                 onTap: _copyLine,
@@ -455,7 +433,7 @@ class ConsoleStatusBar extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  RunStatusDot — animasi pulse saat running
+//  RunStatusDot
 // ─────────────────────────────────────────────────────────────────────────────
 
 class RunStatusDot extends StatefulWidget {
@@ -541,7 +519,10 @@ class EmptyConsole extends StatelessWidget {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      if (constraints.maxHeight < 48) return const SizedBox.shrink();
+      // FIX: Raised threshold from 48 → 80 to account for actual content
+      // height: icon(28) + spacing(8) + text(~14) + padding = ~50px minimum,
+      // which was overflowing at constraints like maxHeight=52.7px.
+      if (constraints.maxHeight < 80) return const SizedBox.shrink();
       return Center(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Icon(
@@ -628,7 +609,7 @@ class _ConsoleIconBtnState extends State<ConsoleIconBtn> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  ConsolePill — count badge di tab header
+//  ConsolePill
 // ─────────────────────────────────────────────────────────────────────────────
 
 class ConsolePill extends StatelessWidget {

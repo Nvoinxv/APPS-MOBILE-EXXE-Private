@@ -2,9 +2,17 @@
 // file_tile.dart
 // Path: frontend/lib/trading_screen/tradingview/components/file_tile.dart
 //
-// FIX BATCH 4: Tambah `onHoverFile` optional param untuk path detection.
-//   Wire ke MouseRegion onEnter/onExit yang sudah ada — null-safe, zero
-//   breaking change ke caller lama yang belum pass param ini.
+// FIX v_copy_path:
+//  - [FIXED] onContextMenu callback signature diperluas jadi
+//            `void Function(Offset globalPos, String resolvedPath)`.
+//            Sebelumnya cuma `void Function(Offset)` → caller tidak pernah
+//            dapat resolved path → showContextMenuFile selalu pakai fallback
+//            file.name doang → hasil copy: "main.py" bukan "tests/main.py".
+//  - Tambah required param `resolvedPath` ke FileTile.
+//    Caller (FolderTreeTile / FileExplorerPanel) pass:
+//      resolvedPath: workspace.getFilePath(file.id)
+//    lalu di callback-nya tinggal forward ke showContextMenuFile(resolvedPath: rp).
+//  - Semua logic, layout, styling, FIX BATCH 4, FIX BATCH 7 IDENTIK.
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -24,10 +32,17 @@ class FileTile extends StatefulWidget {
   final EditorChromeColors chrome;
   final EditorSyntaxColors syntax;
   final VoidCallback       onTap;
-  final void Function(Offset globalPos) onContextMenu;
+
+  // [FIX] Signature diperluas: sekarang callback juga bawa resolvedPath
+  // supaya caller bisa forward ke showContextMenuFile(resolvedPath: ...).
+  final void Function(Offset globalPos, String resolvedPath) onContextMenu;
+
   final String             searchQuery;
-  // BATCH 4: path detection — optional, backward-compatible
   final void Function(ScriptFile?)? onHoverFile;
+
+  // [FIX] resolvedPath di-pass dari caller (workspace.getFilePath(file.id))
+  // agar path yang di-copy sesuai nama folder, bukan UUID.
+  final String             resolvedPath;
 
   const FileTile({
     super.key,
@@ -41,7 +56,8 @@ class FileTile extends StatefulWidget {
     required this.onTap,
     required this.onContextMenu,
     required this.searchQuery,
-    this.onHoverFile, // optional
+    required this.resolvedPath,   // [FIX]
+    this.onHoverFile,
   });
 
   @override
@@ -51,8 +67,10 @@ class FileTile extends StatefulWidget {
 class _FileTileState extends State<FileTile> {
   bool _isHovered = false;
 
-  bool get isReadOnly => widget.isShared && !widget.perm.isAdmin;
-  double get _indent  => (widget.depth * 12.0) + 8.0;
+  // FIX BATCH 7: `!(widget.perm.isAdmin == true)` — null-safe.
+  bool get isReadOnly => widget.isShared && !(widget.perm.isAdmin == true);
+
+  double get _indent => (widget.depth * 12.0) + 8.0;
 
   Color get _bgColor {
     if (widget.isActive) return widget.chrome.cursorColor.withOpacity(0.12);
@@ -84,6 +102,11 @@ class _FileTileState extends State<FileTile> {
     return widget.syntax.comment.withOpacity(0.6);
   }
 
+  // [FIX] Helper: trigger onContextMenu dengan resolvedPath sekaligus
+  void _triggerContextMenu(Offset globalPos) {
+    widget.onContextMenu(globalPos, widget.resolvedPath);
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -91,18 +114,17 @@ class _FileTileState extends State<FileTile> {
         HapticFeedback.selectionClick();
         widget.onTap();
       },
-      onSecondaryTapUp: (details) =>
-          widget.onContextMenu(details.globalPosition),
+      // [FIX] pass resolvedPath ke callback
+      onSecondaryTapUp: (details) => _triggerContextMenu(details.globalPosition),
       onLongPress: () {
         final box    = context.findRenderObject() as RenderBox;
         final center = box.localToGlobal(
           Offset(box.size.width / 2, box.size.height / 2),
         );
-        widget.onContextMenu(center);
+        _triggerContextMenu(center);
       },
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
-        // BATCH 4: fire onHoverFile di onEnter/onExit yang sudah ada
         onEnter: (_) {
           setState(() => _isHovered = true);
           widget.onHoverFile?.call(widget.file);

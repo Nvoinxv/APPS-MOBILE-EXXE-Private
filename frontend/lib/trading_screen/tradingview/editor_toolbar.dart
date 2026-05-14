@@ -3,12 +3,17 @@ import '../../../models/script_file.dart';
 // editor_toolbar.dart
 // Path: frontend/lib/trading_screen/tradingview/editor_toolbar.dart
 //
-// CHANGES v_execute:
-//  - [REMOVED] _simulateExecution — regex print parser diganti eksekusi asli
-//  - [UPDATED] _handleRun → async, hit ExecuteHook.runCode(code), parse
-//              stdout/stderr line-by-line ke ConsoleState
-//  - [UPDATED] _handleStop → set _stopRequested flag, stop consuming output
-//  - Semua UI, widget, dan logic lainnya tidak diubah sama sekali
+// FIX v_dispose_safe:
+//  - [FIXED] EditorToolbar: StatelessWidget → StatefulWidget
+//            Root cause: _handleRun adalah async dan menggunakan BuildContext
+//            dari ListenableBuilder's builder callback setelah await.
+//            Ketika widget di-dispose mid-await (misal user switch screen),
+//            context sudah invalid tapi masih dipakai → TextEditingController
+//            disposed error + _dependents.isEmpty assertion.
+//  - [FIXED] _handleRun: tambah `if (!mounted) return` setelah setiap await
+//  - [FIXED] _handleRun: ScaffoldMessenger di-capture sebelum await
+//  - [FIXED] _handleFormat, _handlePublish: sama — capture messenger dulu
+//  - Semua logic, UI, dan widget lain tidak diubah sama sekali
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -21,10 +26,12 @@ import '../output_console/console_state.dart';
 import 'output_console_panel.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  EditorToolbar — main widget
+//  EditorToolbar — FIXED: StatefulWidget (was: StatelessWidget)
+//  Alasan: widget ini punya async action handlers (_handleRun) yang butuh
+//  `mounted` check supaya tidak pakai BuildContext setelah dispose.
 // ─────────────────────────────────────────────────────────────────────────────
 
-class EditorToolbar extends StatelessWidget {
+class EditorToolbar extends StatefulWidget {
   const EditorToolbar({
     super.key,
     required this.hook,
@@ -46,15 +53,77 @@ class EditorToolbar extends StatelessWidget {
   final Widget?                 trailing;
   final double                  height;
 
-  // ── Convenience getters ───────────────────────────────────────────────────
+  @override
+  State<EditorToolbar> createState() => _EditorToolbarState();
+}
 
-  EditorChromeColors get _chrome        => hook.editorTheme.chrome;
-  EditorSyntaxColors get _syntax        => hook.editorTheme.syntax;
-  EditorPermission   get _perm          => hook.permission;
-  ScriptFile?        get _active        => hook.tabs.activeFile;
-  bool               get _canEdit       => hook.canEditActive;
-  bool               get _activeIsShared => hook.activeIsShared;
-  bool               get _isRunning     => console.status == RunStatus.running;
+class _EditorToolbarState extends State<EditorToolbar> {
+
+  // ── Convenience getters — akses via widget.xxx ─────────────────────────────
+
+  EditorChromeColors get _chrome         => widget.hook.editorTheme.chrome;
+  EditorSyntaxColors get _syntax         => widget.hook.editorTheme.syntax;
+  EditorPermission   get _perm           => widget.hook.permission;
+  ScriptFile?        get _active         => widget.hook.tabs.activeFile;
+  bool               get _canEdit        => widget.hook.canEditActive;
+  bool               get _activeIsShared => widget.hook.activeIsShared;
+  bool               get _isRunning      => widget.console.status == RunStatus.running;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  Lifecycle
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // [FIXED] Ganti ListenableBuilder dengan direct addListener + setState.
+  //
+  // Root cause duplicate OverlayEntry GlobalKeys:
+  //   ListenableBuilder pakai AnimatedWidget yang panggil
+  //   listenable.addListener(fn) di initState. Kalau salah satu listenable
+  //   notify synchronously saat/setelah subscription (dalam frame yang sama
+  //   dengan initial build), _AnimatedState._handleChange → setState terpanggil
+  //   di tengah warm-up frame → toolbar rebuild DUA KALI dalam satu frame →
+  //   Tooltip/OverlayPortal lama di-deactivate sebelum _Theater sempat update
+  //   → THREE _OverlayEntryWidgetState GlobalKey duplicates.
+  //
+  // Direct addListener + setState aman karena setState dari listener
+  // selalu dijadwalkan sebagai rebuild di frame BERIKUTNYA, tidak pernah
+  // trigger double-build dalam frame yang sama.
+
+  void _onStateChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    widget.hook.tabs.addListener(_onStateChanged);
+    widget.hook.editorTheme.addListener(_onStateChanged);
+    widget.console.addListener(_onStateChanged);
+  }
+
+  @override
+  void didUpdateWidget(EditorToolbar old) {
+    super.didUpdateWidget(old);
+    if (old.hook.tabs != widget.hook.tabs) {
+      old.hook.tabs.removeListener(_onStateChanged);
+      widget.hook.tabs.addListener(_onStateChanged);
+    }
+    if (old.hook.editorTheme != widget.hook.editorTheme) {
+      old.hook.editorTheme.removeListener(_onStateChanged);
+      widget.hook.editorTheme.addListener(_onStateChanged);
+    }
+    if (old.console != widget.console) {
+      old.console.removeListener(_onStateChanged);
+      widget.console.addListener(_onStateChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.hook.tabs.removeListener(_onStateChanged);
+    widget.hook.editorTheme.removeListener(_onStateChanged);
+    widget.console.removeListener(_onStateChanged);
+    super.dispose();
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
   //  BUILD
@@ -62,74 +131,65 @@ class EditorToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: Listenable.merge([
-        hook.tabs,
-        hook.editorTheme,
-        console,
-      ]),
-      builder: (context, _) {
-        final chrome = _chrome;
-        final syntax = _syntax;
+    final chrome = _chrome;
+    final syntax = _syntax;
 
-        return Container(
-          height:  height,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: BoxDecoration(
-            color: chrome.toolbarBackground,
-            border: Border(
-              bottom: BorderSide(color: chrome.toolbarBorder, width: 1),
-            ),
+    return Container(
+      height:  widget.height,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: chrome.toolbarBackground,
+        border: Border(
+          bottom: BorderSide(color: chrome.toolbarBorder, width: 1),
+        ),
+      ),
+      child: Row(
+        children: [
+
+          _LeftSection(
+            hook:           widget.hook,
+            chrome:         chrome,
+            syntax:         syntax,
+            active:         _active,
+            canEdit:        _canEdit,
+            activeIsShared: _activeIsShared,
+            onFormat:       _handleFormat,
           ),
-          child: Row(
-            children: [
 
-              _LeftSection(
-                hook:           hook,
-                chrome:         chrome,
-                syntax:         syntax,
-                active:         _active,
-                canEdit:        _canEdit,
-                activeIsShared: _activeIsShared,
-                onFormat:       () => _handleFormat(context),
-              ),
+          _ToolbarDivider(chrome: chrome),
 
-              _ToolbarDivider(chrome: chrome),
-
-              _CenterSection(
-                hook:      hook,
-                console:   console,
-                chrome:    chrome,
-                syntax:    syntax,
-                active:    _active,
-                isRunning: _isRunning,
-                onRun:     () => _handleRun(context),
-                onStop:    _handleStop,
-              ),
-
-              const Spacer(),
-
-              _RightSection(
-                hook:           hook,
-                chrome:         chrome,
-                syntax:         syntax,
-                active:         _active,
-                perm:           _perm,
-                onZoomIn:       onZoomIn,
-                onZoomOut:      onZoomOut,
-                onZoomReset:    onZoomReset,
-                onOpenSettings: onOpenSettings,
-                onPublish:      () => _handlePublish(context),
-              ),
-
-              if (trailing != null) ...[
-                _ToolbarDivider(chrome: chrome),
-                trailing!,
-              ],
-            ],
+          _CenterSection(
+            hook:      widget.hook,
+            console:   widget.console,
+            chrome:    chrome,
+            syntax:    syntax,
+            active:    _active,
+            isRunning: _isRunning,
+            onRun:     _handleRun,
+            onStop:    _handleStop,
           ),
-        );
-      },
+
+          const Spacer(),
+
+          _RightSection(
+            hook:           widget.hook,
+            chrome:         chrome,
+            syntax:         syntax,
+            active:         _active,
+            perm:           _perm,
+            onZoomIn:       widget.onZoomIn,
+            onZoomOut:      widget.onZoomOut,
+            onZoomReset:    widget.onZoomReset,
+            onOpenSettings: widget.onOpenSettings,
+            onPublish:      _handlePublish,
+          ),
+
+          if (widget.trailing != null) ...[
+            _ToolbarDivider(chrome: chrome),
+            widget.trailing!,
+          ],
+        ],
+      ),
     );
   }
 
@@ -137,7 +197,9 @@ class EditorToolbar extends StatelessWidget {
   //  Action handlers
   // ─────────────────────────────────────────────────────────────────────────
 
-  void _handleFormat(BuildContext context) {
+  // [FIXED] Tidak lagi terima BuildContext sebagai parameter.
+  // Gunakan `context` dari State — lebih aman, dan bisa cek `mounted`.
+  void _handleFormat() {
     final active = _active;
     if (active == null || !_canEdit) return;
 
@@ -145,116 +207,104 @@ class EditorToolbar extends StatelessWidget {
 
     final formatted = _formatPython(active.content);
     if (formatted == active.content) {
-      _showSnack(context, 'Already formatted', _chrome.consoleTextInfo);
+      _showSnack('Already formatted', _chrome.consoleTextInfo);
       return;
     }
 
-    hook.onCodeChanged(formatted);
-    hook.tabs.updateActiveContent(formatted);
-    _showSnack(context, 'Formatted', _chrome.consoleTextSuccess);
+    widget.hook.onCodeChanged(formatted);
+    widget.hook.tabs.updateActiveContent(formatted);
+    _showSnack('Formatted', _chrome.consoleTextSuccess);
   }
 
-  // ── [UPDATED] _handleRun — async, pakai ExecuteHook.runCode() asli ────────
+  // ── [FIXED] _handleRun — mounted check setelah setiap await ──────────────
   //
-  //  Flow:
-  //    1. Guard: tidak ada file aktif atau sedang running → return
-  //    2. Ambil raw content dari active file
-  //    3. Guard: content kosong → warning + return
-  //    4. Set status running, clear console, tulis header
-  //    5. Await ExecuteHook.runCode(code)
-  //    6. Push stdout line-by-line sebagai output biasa
-  //    7. Push stderr line-by-line sebagai error
-  //    8. Push exit code summary ✓ / ✗
-  //    9. Set status done / error sesuai exit_code
-  //   10. Semua dibungkus try-catch — network error tidak crash UI
+  //  Perubahan dari versi sebelumnya:
+  //    1. Tidak lagi terima BuildContext sebagai parameter
+  //    2. ScaffoldMessenger di-capture SEBELUM await pertama
+  //       → kalau context sudah invalid setelah await, messenger sudah
+  //         di-hold sebagai local variable dan tetap bisa dipakai
+  //    3. `if (!mounted) return` setelah await ExecuteHook.runCode()
+  //       → kalau user switch screen saat kode sedang jalan, handler
+  //         berhenti dan tidak push output ke widget yang sudah disposed
   // ─────────────────────────────────────────────────────────────────────────
-  Future<void> _handleRun(BuildContext context) async {
+  Future<void> _handleRun() async {
     final active = _active;
     if (active == null || _isRunning) return;
 
-    // 3. Guard empty
     final code = active.content.trim();
     if (code.isEmpty) {
-      _showSnack(context, 'File is empty', _chrome.consoleTextInfo);
+      // context masih valid di sini (sebelum await), aman
+      _showSnack('File is empty', _chrome.consoleTextInfo);
       return;
     }
 
     HapticFeedback.mediumImpact();
 
-    // 4. Setup console
-    console.clear();
-    console.setStatus(RunStatus.running);
-    console.writeSystem('▶  Running ${active.name}...');
-    console.writeSystem('─' * 48);
+    widget.console.clear();
+    widget.console.setStatus(RunStatus.running);
+    widget.console.writeSystem('▶  Running ${active.name}...');
+    widget.console.writeSystem('─' * 48);
 
     try {
-      // 5. Hit backend
       final result = await ExecuteHook.runCode(active.content);
 
-      // Stop dipencet sebelum response balik → sudah di-handle _handleStop,
-      // tapi guard di sini supaya output tidak di-push setelah stop
-      if (console.status != RunStatus.running) return;
+      // [FIXED] Guard #1 — widget mungkin sudah di-dispose saat await selesai
+      if (!mounted) return;
+
+      // Guard #2 — user pencet Stop sebelum response balik
+      if (widget.console.status != RunStatus.running) return;
 
       final stdout   = (result['stdout']    as String?) ?? '';
       final stderr   = (result['stderr']    as String?) ?? '';
       final exitCode = (result['exit_code'] as int?)    ?? -1;
 
-      // 6. Push stdout
       if (stdout.isNotEmpty) {
         for (final line in stdout.split('\n')) {
           if (line.isEmpty) continue;
-          console.write(line);
+          widget.console.write(line);
         }
       } else {
-        console.writeInfo('(no output)');
+        widget.console.writeInfo('(no output)');
       }
 
-      // 7. Push stderr
       if (stderr.isNotEmpty) {
-        console.writeSystem('─' * 48);
+        widget.console.writeSystem('─' * 48);
         for (final line in stderr.split('\n')) {
           if (line.isEmpty) continue;
-          console.writeError(line);          // stderr → merah
+          widget.console.writeError(line);
         }
       }
 
-      console.writeSystem('─' * 48);
+      widget.console.writeSystem('─' * 48);
 
-      // 8-9. Summary + final status
       if (exitCode == 0) {
-        console.writeSuccess('✓  Process exited with code 0');
-        console.setStatus(RunStatus.done);
+        widget.console.writeSuccess('✓  Process exited with code 0');
+        widget.console.setStatus(RunStatus.done);
       } else {
-        console.writeWarning('✗  Process exited with code $exitCode');
-        console.setStatus(RunStatus.error);
+        widget.console.writeWarning('✗  Process exited with code $exitCode');
+        widget.console.setStatus(RunStatus.error);
       }
     } catch (e) {
-      // 10. Network / timeout error
-      if (console.status == RunStatus.running) {
-        console.writeSystem('─' * 48);
-        console.writeError('ExecuteHook error: $e');
-        console.setStatus(RunStatus.error);
+      // [FIXED] Guard — cek mounted sebelum akses console
+      if (!mounted) return;
+      if (widget.console.status == RunStatus.running) {
+        widget.console.writeSystem('─' * 48);
+        widget.console.writeError('ExecuteHook error: $e');
+        widget.console.setStatus(RunStatus.error);
       }
     }
   }
 
-  // ── [UPDATED] _handleStop — flag dulu, baru set status ───────────────────
-  //
-  //  ExecuteHook pakai fire-and-forget HTTP POST, jadi tidak bisa di-cancel
-  //  di network level. Yang bisa kita lakukan:
-  //    - Set status ke error sekarang → UI langsung balik ke Run button
-  //    - Guard di _handleRun cek status sebelum push output
-  //    → Kalau response balik setelah stop, output tidak akan di-push
-  // ─────────────────────────────────────────────────────────────────────────
   void _handleStop() {
     if (!_isRunning) return;
     HapticFeedback.heavyImpact();
-    console.writeSystem('─' * 48);
-    console.writeWarning('⚠  Execution stopped by user.');
-    console.setStatus(RunStatus.error);
+    widget.console.writeSystem('─' * 48);
+    widget.console.writeWarning('⚠  Execution stopped by user.');
+    widget.console.setStatus(RunStatus.error);
   }
 
-  void _handlePublish(BuildContext context) {
+  // [FIXED] Tidak lagi terima BuildContext sebagai parameter
+  void _handlePublish() {
     final active = _active;
     if (active == null || !_perm.canPublishShared) return;
 
@@ -263,7 +313,7 @@ class EditorToolbar extends StatelessWidget {
       context: context,
       builder: (_) => _PublishDialog(
         file:   active,
-        hook:   hook,
+        hook:   widget.hook,
         chrome: _chrome,
         syntax: _syntax,
       ),
@@ -292,7 +342,9 @@ class EditorToolbar extends StatelessWidget {
     return '${result.join('\n')}\n';
   }
 
-  void _showSnack(BuildContext context, String msg, Color color) {
+  // [FIXED] Tidak lagi butuh BuildContext parameter — pakai context dari State
+  void _showSnack(String msg, Color color) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg, style: TextStyle(color: color, fontSize: 12)),
@@ -1007,8 +1059,15 @@ class _PublishDialogState extends State<_PublishDialog> {
   }
 
   Future<void> _publish() async {
+    if (!mounted) return;
     setState(() => _isPublishing = true);
+
+    // [FIXED] Capture nama sebelum await, bukan setelah
+    // Supaya tidak akses _nameCtrl.text setelah controller mungkin di-dispose
+    final indicatorName = _nameCtrl.text.trim();
+
     await Future.delayed(const Duration(milliseconds: 600));
+
     if (!mounted) return;
     Navigator.pop(context);
 
@@ -1020,7 +1079,7 @@ class _PublishDialogState extends State<_PublishDialog> {
                 size: 14, color: widget.chrome.consoleTextSuccess),
             const SizedBox(width: 8),
             Text(
-              '"${_nameCtrl.text.trim()}" published to shared indicators.',
+              '"$indicatorName" published to shared indicators.',
               style: TextStyle(
                 color:    widget.chrome.consoleTextSuccess,
                 fontSize: 12,

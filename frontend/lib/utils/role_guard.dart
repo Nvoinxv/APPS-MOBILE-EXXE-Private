@@ -77,15 +77,13 @@ class UploadGuard extends StatelessWidget {
 }
 
 // ─── Section Lock Banner ──────────────────────────────────────────────────────
-// token dibuat OPTIONAL (default '') agar halaman lama tidak perlu diubah.
-// Kalau token kosong saat user tap Upgrade, diarahkan ke /login.
 class SectionLockBanner extends StatelessWidget {
   final String sectionName;
-  final String token; // optional — default ''
+  final String token;
   const SectionLockBanner({
     Key? key,
     required this.sectionName,
-    this.token = '',   // ← FIX: tidak lagi wajib diisi
+    this.token = '',
   }) : super(key: key);
 
   @override
@@ -104,7 +102,6 @@ class SectionLockBanner extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // ── Ikon Kunci ──────────────────────────────────────────────────────
           Container(
             width: 72, height: 72,
             decoration: BoxDecoration(
@@ -116,8 +113,6 @@ class SectionLockBanner extends StatelessWidget {
                 color: green.withOpacity(0.65), size: 30),
           ),
           const SizedBox(height: 20),
-
-          // ── Badge ───────────────────────────────────────────────────────────
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
             decoration: BoxDecoration(
@@ -133,15 +128,11 @@ class SectionLockBanner extends StatelessWidget {
                     letterSpacing: 2)),
           ),
           const SizedBox(height: 16),
-
-          // ── Nama Section ────────────────────────────────────────────────────
           Text(sectionName,
               style: const TextStyle(
                   color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800),
               textAlign: TextAlign.center),
           const SizedBox(height: 10),
-
-          // ── Deskripsi ───────────────────────────────────────────────────────
           Text(
             'Konten ini hanya tersedia untuk member Exclusive dan Admin.\nUpgrade akunmu untuk mengakses seluruh fitur EXXE.LAB.',
             style: TextStyle(
@@ -149,12 +140,9 @@ class SectionLockBanner extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 28),
-
-          // ── Tombol Upgrade ────────────────────────────────────────────────
           GestureDetector(
             onTap: () {
               HapticFeedback.mediumImpact();
-              // Kalau token tersedia → ke /payment, kalau tidak → ke /login
               if (token.isNotEmpty) {
                 Navigator.pushNamed(context, '/payment', arguments: token);
               } else {
@@ -281,12 +269,13 @@ class _LockedScreenState extends State<LockedScreen>
 
                 // ── Grid background ───────────────────────────────────────────
                 Positioned.fill(
-                    child: CustomPaint(painter: _GridPainter(color: border))),
+                    child: CustomPaint(
+                        painter: _GridPainter(color: border))),
 
                 // ── Content ───────────────────────────────────────────────────
                 Column(
                   children: [
-                    // Back button
+                    // Back button — fixed, tidak ikut scroll
                     Padding(
                       padding: const EdgeInsets.all(16),
                       child: Align(
@@ -300,17 +289,24 @@ class _LockedScreenState extends State<LockedScreen>
                               borderRadius: BorderRadius.circular(8),
                               border:       Border.all(color: border),
                             ),
-                            child: const Icon(Icons.arrow_back_ios_new_rounded,
-                                color: Colors.white54, size: 16),
+                            child: const Icon(
+                                Icons.arrow_back_ios_new_rounded,
+                                color: Colors.white54,
+                                size: 16),
                           ),
                         ),
                       ),
                     ),
 
+                    // ── FIX: ganti Center → SingleChildScrollView ────────────
+                    // Center tidak bisa scroll → overflow di layar kecil.
+                    // SingleChildScrollView + BouncingScrollPhysics = flex
+                    // di semua ukuran layar tanpa kuning-kuning.
                     Expanded(
-                      child: Center(
+                      child: SingleChildScrollView(
+                        physics: const BouncingScrollPhysics(),
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 32),
+                          padding: const EdgeInsets.fromLTRB(32, 16, 32, 32),
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
@@ -334,13 +330,14 @@ class _LockedScreenState extends State<LockedScreen>
                                           spreadRadius: 10)
                                     ],
                                   ),
-                                  child: Icon(Icons.lock_outline_rounded,
+                                  child: Icon(
+                                      Icons.lock_outline_rounded,
                                       color: green.withOpacity(
                                           0.6 + 0.4 * _pulseAnim.value),
                                       size: 52),
                                 ),
                               ),
-                              const SizedBox(height: 40),
+                              const SizedBox(height: 32),
 
                               // ── Badge ────────────────────────────────────────
                               Container(
@@ -349,7 +346,7 @@ class _LockedScreenState extends State<LockedScreen>
                                 decoration: BoxDecoration(
                                   color:        green.withOpacity(0.08),
                                   borderRadius: BorderRadius.circular(6),
-                                  border:       Border.all(
+                                  border: Border.all(
                                       color: green.withOpacity(0.2)),
                                 ),
                                 child: Text('RESTRICTED ACCESS',
@@ -379,7 +376,7 @@ class _LockedScreenState extends State<LockedScreen>
                                     height:   1.6),
                                 textAlign: TextAlign.center,
                               ),
-                              const SizedBox(height: 48),
+                              const SizedBox(height: 36),
 
                               // ── Feature list ─────────────────────────────────
                               Container(
@@ -388,21 +385,33 @@ class _LockedScreenState extends State<LockedScreen>
                                 decoration: BoxDecoration(
                                   color:        surface,
                                   borderRadius: BorderRadius.circular(16),
-                                  border:       Border.all(color: border),
+                                  border: Border.all(color: border),
                                 ),
                                 child: Column(children: [
-                                  _FRow(icon: Icons.candlestick_chart_outlined, label: 'Live Candlestick Chart',       color: green),
+                                  _FRow(
+                                      icon:  Icons.candlestick_chart_outlined,
+                                      label: 'Live Candlestick Chart',
+                                      color: green),
                                   const SizedBox(height: 14),
-                                  _FRow(icon: Icons.bar_chart_rounded,          label: 'Multi-Timeframe Analysis',     color: green),
+                                  _FRow(
+                                      icon:  Icons.bar_chart_rounded,
+                                      label: 'Multi-Timeframe Analysis',
+                                      color: green),
                                   const SizedBox(height: 14),
-                                  _FRow(icon: Icons.timeline_rounded,           label: 'Risk Ratio & Fibonacci Tools', color: green),
+                                  _FRow(
+                                      icon:  Icons.timeline_rounded,
+                                      label: 'Risk Ratio & Fibonacci Tools',
+                                      color: green),
                                   const SizedBox(height: 14),
-                                  _FRow(icon: Icons.currency_bitcoin_rounded,   label: 'Top 100 Crypto Data',          color: green),
+                                  _FRow(
+                                      icon:  Icons.currency_bitcoin_rounded,
+                                      label: 'Top 100 Crypto Data',
+                                      color: green),
                                 ]),
                               ),
                               const SizedBox(height: 28),
 
-                              // ── Tombol Upgrade → /payment ─────────────────────
+                              // ── Tombol Upgrade ────────────────────────────────
                               SizedBox(
                                 width: double.infinity,
                                 child: GestureDetector(
@@ -417,12 +426,13 @@ class _LockedScreenState extends State<LockedScreen>
                                       borderRadius: BorderRadius.circular(12),
                                       boxShadow: [
                                         BoxShadow(
-                                            color:      green.withOpacity(0.25),
+                                            color: green.withOpacity(0.25),
                                             blurRadius: 20,
-                                            offset:     const Offset(0, 6))
+                                            offset: const Offset(0, 6))
                                       ],
                                     ),
-                                    child: const Text('Upgrade ke Exclusive',
+                                    child: const Text(
+                                        'Upgrade ke Exclusive',
                                         textAlign: TextAlign.center,
                                         style: TextStyle(
                                             color:         Color(0xFF080C08),
@@ -460,7 +470,8 @@ class _FRow extends StatelessWidget {
     Container(
       width: 32, height: 32,
       decoration: BoxDecoration(
-          color: color.withOpacity(0.08), borderRadius: BorderRadius.circular(8)),
+          color:        color.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(8)),
       child: Icon(icon, color: color, size: 16),
     ),
     const SizedBox(width: 12),

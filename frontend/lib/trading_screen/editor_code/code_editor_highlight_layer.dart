@@ -2,10 +2,39 @@
 // code_editor_highlight_layer.dart
 //
 // Tanggung jawab:
-//   - _CodeTextField: Stack TextField (transparan) + highlight overlay
+//   - CodeTextField: Stack TextField (transparan) + highlight overlay
 //   - Debounce highlight 80ms untuk smooth typing
-//   - _HighlightLayer: panggil PythonSyntaxHighlighter v2 + inject match spans
+//   - HighlightLayer: panggil PythonSyntaxHighlighter v2 + inject match spans
 //   - _FlatSpan helper untuk match injection
+//
+// FIX v_cursor_align:
+//  - [ROOT CAUSE] Cursor `|` muncul di ATAS teks, bukan sejajar.
+//    Penyebab: TextStyle(height: lineHeightFactor) di TextField menggeser
+//    caret position yang dihitung Flutter ke atas. Flutter mendistribusikan
+//    extra line height sebagai "leading" di atas ascent — cursor top ikut
+//    dihitung dari sana, bukan dari font baseline natural.
+//    Akibatnya: teks berada di baseline yang benar, tapi cursor muncul
+//    ~(lineHeightFactor - 1) * fontSize / 2 pixel di atasnya.
+//
+//  - [FIX] Cabut `height` dari TextStyle di TextField.
+//    Biarkan strutStyle(forceStrutHeight: true) yang mengendalikan line
+//    spacing. Cursor akan lock ke font baseline natural (benar secara visual).
+//    HighlightLayer ikut: baseStyle juga tidak boleh punya `height`, supaya
+//    TextPainter overlay identik dengan TextField dan teks tetap align.
+//
+//  - [FIX] cursorHeight dibiarkan null — Flutter hitung dari font metrics
+//    secara otomatis, lebih akurat dan tidak akan off-center kalau
+//    lineHeight factor berubah.
+//
+//  - [KEPT] strutStyle dengan forceStrutHeight: true di-share ke keduanya
+//    supaya line offsets di TextField dan HighlightLayer selalu identik.
+//    Tanpa ini cursor drift accumulate seiring banyaknya baris.
+//
+//  - [KEPT] textHeightBehavior tidak diset di HighlightLayer
+//    (default Flutter = sama dengan TextField).
+//
+// FIX v_click_natural (sebelumnya):
+//  - [FIXED] mouseCursor: SystemMouseCursors.text
 // =============================================================================
 
 import 'dart:async';
@@ -15,7 +44,7 @@ import '../../style/apps_colors_tradingview.dart';
 import '../../utils/python_syntax_highlighter.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  CodeTextField — smooth typing via 80ms debounce pada highlight overlay
+//  CodeTextField
 // ─────────────────────────────────────────────────────────────────────────────
 
 class CodeTextField extends StatefulWidget {
@@ -67,7 +96,6 @@ class _CodeTextFieldState extends State<CodeTextField> {
       widget.textCtrl.addListener(_scheduleHighlight);
       _displaySource = widget.textCtrl.text;
     }
-    // Match/theme/font berubah → langsung update tanpa debounce
     if (old.matches  != widget.matches  ||
         old.theme    != widget.theme    ||
         old.fontSize != widget.fontSize) {
@@ -94,9 +122,22 @@ class _CodeTextFieldState extends State<CodeTextField> {
 
   @override
   Widget build(BuildContext context) {
+    // [FIX] strutStyle di-share ke TextField DAN HighlightLayer.
+    // forceStrutHeight: true → setiap baris persis fontSize * lineHeightFactor,
+    // tidak ada variasi dari glyph metrics per-karakter.
+    // leading: 0 → tidak ada extra space di luar definisi kita.
+    // height di sini adalah lineHeightFactor (factor, bukan pixel).
+    final sharedStrut = StrutStyle(
+      fontFamily:       widget.typo.fontFamily,
+      fontSize:         widget.fontSize,
+      height:           widget.typo.lineHeight,
+      leading:          0,
+      forceStrutHeight: true,
+    );
+
     return Stack(
       children: [
-        // Layer 1: TextField transparan — cursor + selection selalu 60fps
+        // ── Layer 1: TextField transparan ────────────────────────────────────
         TextField(
           controller:        widget.textCtrl,
           focusNode:         widget.focusNode,
@@ -109,20 +150,34 @@ class _CodeTextFieldState extends State<CodeTextField> {
           enableSuggestions: false,
           smartDashesType:   SmartDashesType.disabled,
           smartQuotesType:   SmartQuotesType.disabled,
-          // ── Kunci VSCode-feel: biarkan Flutter handle semua selection/cursor ──
-          // Jangan override dengan custom scroll — TextField sudah handle
-          // Ctrl+arrow, Shift+arrow, Home, End secara native
+          mouseCursor:       SystemMouseCursors.text,
+
+          // [FIX] strutStyle yang enforce line height.
+          strutStyle: sharedStrut,
+
           style: TextStyle(
             fontFamily:    widget.typo.fontFamily,
             fontSize:      widget.fontSize,
-            height:        widget.typo.lineHeight,
+            // [FIX] `height` SENGAJA TIDAK DISET di TextStyle.
+            //
+            // Kalau height ada di TextStyle, Flutter menambahkan "leading"
+            // di atas font ascent sebesar (height - 1) * fontSize / 2.
+            // Flutter's getOffsetForCaret memasukkan leading ini ke dalam
+            // perhitungan caret dy → cursor muncul lebih tinggi dari teks.
+            //
+            // Dengan height hanya di strutStyle (bukan TextStyle), Flutter
+            // menggunakan font baseline natural untuk posisi caret → cursor
+            // sejajar dengan teks.
             letterSpacing: widget.typo.letterSpacing,
-            color:         Colors.transparent, // teks asli transparan
+            color:         Colors.transparent,
           ),
-          cursorColor:  widget.chrome.cursorColor,
-          cursorWidth:  2.0,
-          cursorHeight: widget.fontSize,
-          // Gunakan default selectionControls supaya Shift+arrow bekerja native
+
+          cursorColor: widget.chrome.cursorColor,
+          cursorWidth: 2.0,
+          // [FIX] cursorHeight TIDAK diset (null).
+          // Flutter otomatis hitung dari font metrics → lebih akurat,
+          // tidak akan off-center kalau lineHeight factor berubah.
+
           decoration: const InputDecoration(
             border:         InputBorder.none,
             isDense:        true,
@@ -132,7 +187,7 @@ class _CodeTextFieldState extends State<CodeTextField> {
           ),
         ),
 
-        // Layer 2: Highlight overlay — debounced, tidak blocking input
+        // ── Layer 2: Highlight overlay ───────────────────────────────────────
         IgnorePointer(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
@@ -142,6 +197,7 @@ class _CodeTextFieldState extends State<CodeTextField> {
                 theme:        widget.theme,
                 fontSize:     widget.fontSize,
                 lineHeight:   widget.lineHeight,
+                strutStyle:   sharedStrut,
                 matches:      widget.matches,
                 currentMatch: widget.currentMatch,
                 chrome:       widget.chrome,
@@ -165,6 +221,7 @@ class HighlightLayer extends StatelessWidget {
     required this.theme,
     required this.fontSize,
     required this.lineHeight,
+    required this.strutStyle,
     required this.matches,
     required this.currentMatch,
     required this.chrome,
@@ -174,15 +231,19 @@ class HighlightLayer extends StatelessWidget {
   final EditorThemeState   theme;
   final double             fontSize;
   final double             lineHeight;
+  final StrutStyle         strutStyle;
   final List<TextRange>    matches;
   final int                currentMatch;
   final EditorChromeColors chrome;
 
   @override
   Widget build(BuildContext context) {
+    // [FIX] baseStyle TIDAK punya height — sama seperti TextField style.
+    // Kalau overlay punya height tapi TextField tidak, TextPainter keduanya
+    // hitung line offsets beda → teks overlay geser dari cursor position.
     final baseStyle = theme.typography.baseStyle.copyWith(
       fontSize: fontSize,
-      height:   lineHeight / fontSize,
+      // height sengaja tidak diset di sini, strutStyle yang handle.
     );
 
     var highlighted = PythonSyntaxHighlighter.buildTextSpan(source, theme: theme);
@@ -193,13 +254,11 @@ class HighlightLayer extends StatelessWidget {
 
     return Text.rich(
       highlighted,
-      style:    baseStyle,
-      softWrap: false,
-      overflow: TextOverflow.visible,
-      textHeightBehavior: const TextHeightBehavior(
-        applyHeightToFirstAscent: false,
-        applyHeightToLastDescent: false,
-      ),
+      style:      baseStyle,
+      strutStyle: strutStyle,
+      softWrap:   false,
+      overflow:   TextOverflow.visible,
+      // textHeightBehavior tidak diset → default Flutter, sama dengan TextField.
     );
   }
 
@@ -254,7 +313,12 @@ class HighlightLayer extends StatelessWidget {
     if (span is TextSpan) {
       final txt = span.text ?? '';
       if (txt.isNotEmpty) {
-        out.add(_FlatSpan(text: txt, style: span.style, start: offset, end: offset + txt.length));
+        out.add(_FlatSpan(
+          text:  txt,
+          style: span.style,
+          start: offset,
+          end:   offset + txt.length,
+        ));
         offset += txt.length;
       }
       for (final child in span.children ?? const <InlineSpan>[]) {
@@ -266,7 +330,7 @@ class HighlightLayer extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  _FlatSpan — helper untuk flatten TextSpan tree
+//  _FlatSpan
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _FlatSpan {

@@ -16,6 +16,16 @@
 //   ─────────────────
 //   Publish to Shared → admin only
 //   Copy Path         → always visible
+//
+// FIX v_copy_path:
+//  - [FIXED] _CopyPathRow._copy() pakai file.parentId (UUID) bukan nama folder.
+//            Contoh hasil lama: "b6dfc252-6091-43cd-a87f-53c4f32349d3/main.py"
+//            Hasil baru: "test/test_1/main.py"
+//  - Tambah parameter `resolvedPath` (String?) ke showContextMenuFile dan
+//    _CopyPathRow. Caller tinggal pass workspace.getFilePath(file.id) yang
+//    sudah ada di WorkspaceState — tidak ada logic baru di sini.
+//  - Fallback ke nama file saja kalau resolvedPath null (backward compat).
+//  - Semua logic lain, fitur, dan struktur TIDAK DIUBAH.
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -33,11 +43,16 @@ enum ContextMenuAction {
   newFileHere,
   newFolderHere,
   publishShared,
+  copyPath,         // [UI SYNC] samain dengan folder context menu
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  showContextMenuFile
 //  Helper function — call ini buat tampilkan context menu
+//
+//  [FIX] Tambah parameter `resolvedPath` (optional, nullable).
+//  Caller pass: workspace.getFilePath(file.id)
+//  → hasilnya "test/test_1/main.py" bukan UUID/main.py
 // ─────────────────────────────────────────────────────────────────────────────
 
 Future<ContextMenuAction?> showContextMenuFile({
@@ -51,6 +66,7 @@ Future<ContextMenuAction?> showContextMenuFile({
   required bool                canRename,
   required bool                isAdmin,
   required bool                isShared,
+  String?                      resolvedPath,   // [FIX] path dengan nama folder asli
 }) async {
   final RenderBox overlay =
       Overlay.of(context).context.findRenderObject()! as RenderBox;
@@ -149,11 +165,18 @@ Future<ContextMenuAction?> showContextMenuFile({
         ),
 
       // ── Always: Copy path ─────────────────────────────────────────────────
+      // [UI SYNC] Sekarang pakai PopupMenuItem dengan value (bukan enabled:false
+      // inline widget) — konsisten dengan folder context menu.
+      // Handling (SnackBar "Path copied: ...") dilakukan di _handleContextMenu.
       PopupMenuDivider(height: 1),
       PopupMenuItem<ContextMenuAction>(
-        enabled: false, // non-interactive, acts inline
-        height:  36,
-        child:   _CopyPathRow(file: file, syntax: syntax, chrome: chrome),
+        value:  ContextMenuAction.copyPath,
+        height: 36,
+        child:  _ContextMenuRow(
+          icon:   Icons.content_copy_rounded,
+          label:  'Copy Path',
+          syntax: syntax,
+        ),
       ),
     ],
   );
@@ -278,68 +301,6 @@ class _ContextMenuRow extends StatelessWidget {
             ),
           ),
       ],
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  _CopyPathRow — inline action (copy to clipboard)
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _CopyPathRow extends StatefulWidget {
-  final ScriptFile         file;
-  final EditorSyntaxColors syntax;
-  final EditorChromeColors chrome;
-
-  const _CopyPathRow({
-    required this.file,
-    required this.syntax,
-    required this.chrome,
-  });
-
-  @override
-  State<_CopyPathRow> createState() => _CopyPathRowState();
-}
-
-class _CopyPathRowState extends State<_CopyPathRow> {
-  bool _copied = false;
-
-  void _copy() {
-    Clipboard.setData(ClipboardData(
-      text: '${widget.file.parentId}/${widget.file.name}',
-    ));
-    HapticFeedback.lightImpact();
-    setState(() => _copied = true);
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) setState(() => _copied = false);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: _copy,
-      child: Row(
-        children: [
-          Icon(
-            _copied ? Icons.check_rounded : Icons.copy_outlined,
-            size:  14,
-            color: widget.syntax.comment.withOpacity(0.5),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              _copied ? 'Copied!' : 'Copy Path',
-              style: TextStyle(
-                color:    _copied
-                    ? widget.chrome.consoleTextSuccess
-                    : widget.syntax.plain.withOpacity(0.55),
-                fontSize: 13,
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

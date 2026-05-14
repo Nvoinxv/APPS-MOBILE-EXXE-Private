@@ -20,6 +20,11 @@ import '../models/script_file.dart';
 //
 // Tidak ada perubahan di: IndicatorCard, IndicatorSearchBar,
 // IndicatorPreviewSheet, semua internal small widgets.
+//
+// FIX OVERFLOW: Row count + New Indicator button di IndicatorListView
+// overflow karena parent constraint ~128px. Fix: Flexible pada Text + button
+// dikecilkan / ellipsis ditambah. Juga fix overflow bottom di card footer
+// dengan Flexible pada author column.
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -310,47 +315,74 @@ class _IndicatorCardState extends State<IndicatorCard>
               ),
 
               // ── Footer ───────────────────────────────────────────────────
+              // FIX: Wrap seluruh footer Row dengan overflow protection.
+              // Tag chips dibungkus Flexible agar tidak paksa meluber,
+              // author column di sisi kanan juga pakai Flexible + ellipsis.
               Padding(
                 padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
                 child: Row(
                   children: [
-                    _TagChip(label: ind.categoryLabel, color: cat, chrome: chrome),
-                    const SizedBox(width: 6),
-                    _TagChip(
-                      label: ind.isShared ? 'Shared' : 'Private',
-                      color: ind.isShared
-                          ? syntax.builtinConst
-                          : syntax.decorator,
-                      chrome: chrome,
-                    ),
-                    if (ind.tags.isNotEmpty) ...[
-                      const SizedBox(width: 6),
-                      _TagChip(
-                        label: ind.tags.first,
-                        color: syntax.comment,
-                        chrome: chrome,
+                    // FIX: Wrap chip area dengan Flexible supaya tidak overflow
+                    Flexible(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: _TagChip(
+                              label:  ind.categoryLabel,
+                              color:  cat,
+                              chrome: chrome,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: _TagChip(
+                              label: ind.isShared ? 'Shared' : 'Private',
+                              color: ind.isShared
+                                  ? syntax.builtinConst
+                                  : syntax.decorator,
+                              chrome: chrome,
+                            ),
+                          ),
+                          if (ind.tags.isNotEmpty) ...[
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: _TagChip(
+                                label:  ind.tags.first,
+                                color:  syntax.comment,
+                                chrome: chrome,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
-                    ],
-                    const Spacer(),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          ind.authorLabel,
-                          style: TextStyle(
-                            color:    syntax.comment.withOpacity(0.7),
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
+                    ),
+                    const SizedBox(width: 8),
+                    // FIX: author column pakai Flexible + ellipsis agar tidak overflow
+                    Flexible(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            ind.authorLabel,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color:      syntax.comment.withOpacity(0.7),
+                              fontSize:   10,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                        ),
-                        Text(
-                          _formatDate(ind.updatedAt),
-                          style: TextStyle(
-                            color:    syntax.comment.withOpacity(0.45),
-                            fontSize: 9.5,
+                          Text(
+                            _formatDate(ind.updatedAt),
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color:    syntax.comment.withOpacity(0.45),
+                              fontSize: 9.5,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -470,16 +502,21 @@ class _IndicatorListViewState extends State<IndicatorListView> {
     final chrome = widget.theme.chrome;
     final syntax = widget.theme.syntax;
 
+    // FIX: Column pakai mainAxisSize.max (mengisi semua ruang dari parent),
+    // list area pakai Expanded — valid karena parent sudah bounded via Expanded
+    // di _TradingViewShell. mainAxisSize.min adalah sumber overflow karena
+    // Flutter tetap coba render children melebihi batas fixed height parent.
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
 
-        // ── Search bar ──────────────────────────────────────────────────
+        // ── Search bar ────────────────────────────────────────────────────
         IndicatorSearchBar(
           theme:    widget.theme,
           onSearch: (q) => setState(() => _query = q),
         ),
 
-        // ── Filter chips ────────────────────────────────────────────────
+        // ── Filter chips ──────────────────────────────────────────────────
         _FilterChipRow(
           theme:              widget.theme,
           activeCategory:     _activeCategory,
@@ -488,65 +525,75 @@ class _IndicatorListViewState extends State<IndicatorListView> {
           onOwnershipChanged: (o) => setState(() => _activeOwnership = o),
         ),
 
-        // ── Count label + FIX: New Indicator button ──────────────────────
-        //
-        // FIX: tombol "+" di sini biar user bisa buat indikator baru
-        // kapanpun, tidak hanya saat list kosong.
+        // ── Count + New button ────────────────────────────────────────────
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           child: Row(
             children: [
-              Text(
-                '${_filtered.length} indicator${_filtered.length == 1 ? '' : 's'}',
-                style: TextStyle(
-                  color: syntax.comment.withOpacity(0.6), fontSize: 11,
+              Flexible(
+                fit: FlexFit.loose,
+                child: Text(
+                  '${_filtered.length} indicator${_filtered.length == 1 ? '' : 's'}',
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: syntax.comment.withOpacity(0.6), fontSize: 11,
+                  ),
                 ),
               ),
-              const Spacer(),
-
-              // FIX: tombol "New Indicator" yang beneran bisa dipencet
-              if (widget.permission.canCreate)
-                GestureDetector(
-                  onTap: () {
-                    HapticFeedback.lightImpact();
-                    widget.onCreateNew();
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color:        chrome.cursorColor.withOpacity(0.10),
-                      borderRadius: BorderRadius.circular(6),
-                      border:       Border.all(color: chrome.cursorColor.withOpacity(0.35)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.add_rounded, size: 13, color: chrome.cursorColor),
-                        const SizedBox(width: 4),
-                        Text(
-                          'New Indicator',
-                          style: TextStyle(
-                            color:      chrome.cursorColor,
-                            fontSize:   11,
-                            fontWeight: FontWeight.w700,
+              if (widget.permission.canCreate) ...[
+                const SizedBox(width: 8),
+                Material(
+                  color: Colors.transparent,
+                  borderRadius: BorderRadius.circular(6),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(6),
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      widget.onCreateNew();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 5),
+                      decoration: BoxDecoration(
+                        color:        chrome.cursorColor.withOpacity(0.10),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                            color: chrome.cursorColor.withOpacity(0.35)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.add_rounded,
+                              size: 13, color: chrome.cursorColor),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              'New',
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color:      chrome.cursorColor,
+                                fontSize:   11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
+              ],
             ],
           ),
         ),
 
-        // ── List / empty state ───────────────────────────────────────────
+        // ── List / empty state — Expanded mengisi sisa ruang ─────────────
         Expanded(
           child: _filtered.isEmpty
               ? IndicatorEmptyState(
-                  theme:         widget.theme,
-                  query:         _query,
-                  // FIX: pass onCreateNew ke empty state
-                  onCreateNew:   widget.permission.canCreate
+                  theme:       widget.theme,
+                  query:       _query,
+                  onCreateNew: widget.permission.canCreate
                       ? widget.onCreateNew
                       : null,
                 )
@@ -554,7 +601,7 @@ class _IndicatorListViewState extends State<IndicatorListView> {
                   itemCount: _filtered.length,
                   padding: const EdgeInsets.only(bottom: 24),
                   itemBuilder: (_, i) {
-                    final ind  = _filtered[i];
+                    final ind   = _filtered[i];
                     final isFav = _favorites.any((f) => f.id == ind.id);
                     return IndicatorCard(
                       indicator:  ind.copyWith(isFavorite: isFav),
@@ -756,6 +803,7 @@ class IndicatorPreviewSheet extends StatelessWidget {
                       color: syntax.plain, fontSize: 16,
                       fontWeight: FontWeight.w800,
                     ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 if (isReadOnly) _ReadOnlyTag(chrome: chrome),
@@ -788,6 +836,7 @@ class IndicatorPreviewSheet extends StatelessWidget {
                 Text(
                   'by ${indicator.authorLabel}',
                   style: TextStyle(color: syntax.comment.withOpacity(0.6), fontSize: 11),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
@@ -877,8 +926,8 @@ class IndicatorPreviewSheet extends StatelessWidget {
 //  WIDGET: IndicatorEmptyState
 //
 //  FIX: tambah param onCreateNew (nullable).
-//  "New Indicator" button sekarang wrapped GestureDetector + hanya tampil
-//  kalau onCreateNew != null (artinya user punya permission canCreate).
+//  "New Indicator" button sekarang wrapped Material+InkWell — bisa dipencet.
+//  Hanya tampil kalau onCreateNew != null (artinya user punya permission canCreate).
 // ─────────────────────────────────────────────────────────────────────────────
 
 class IndicatorEmptyState extends StatelessWidget {
@@ -940,33 +989,39 @@ class IndicatorEmptyState extends StatelessWidget {
             if (query.isEmpty && onCreateNew != null) ...[
               const SizedBox(height: 24),
 
-              // FIX: GestureDetector membungkus Container — sekarang bisa dipencet
-              GestureDetector(
-                onTap: () {
-                  HapticFeedback.lightImpact();
-                  onCreateNew!();
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  decoration: BoxDecoration(
-                    color:        chrome.cursorColor.withOpacity(0.10),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: chrome.cursorColor.withOpacity(0.35)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.add_rounded, size: 16, color: chrome.cursorColor),
-                      const SizedBox(width: 6),
-                      Text(
-                        'New Indicator',
-                        style: TextStyle(
-                          color:      chrome.cursorColor,
-                          fontSize:   13,
-                          fontWeight: FontWeight.w700,
+              // FIX: Material + InkWell menggantikan GestureDetector
+              // supaya touch event tidak terblok oleh widget ancestor lain.
+              Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    onCreateNew!();
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    decoration: BoxDecoration(
+                      color:        chrome.cursorColor.withOpacity(0.10),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: chrome.cursorColor.withOpacity(0.35)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.add_rounded, size: 16, color: chrome.cursorColor),
+                        const SizedBox(width: 6),
+                        Text(
+                          'New Indicator',
+                          style: TextStyle(
+                            color:      chrome.cursorColor,
+                            fontSize:   13,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1002,6 +1057,7 @@ class _TagChip extends StatelessWidget {
     ),
     child: Text(
       label,
+      overflow: TextOverflow.ellipsis,
       style: TextStyle(
         color:         color,
         fontSize:      10,
@@ -1057,21 +1113,27 @@ class _AdminActionBar extends StatelessWidget {
       border: Border(top: BorderSide(color: chrome.gutterBorder.withOpacity(0.5))),
     ),
     child: Row(
+      mainAxisSize: MainAxisSize.max,
       children: [
+        // FIX: Flexible agar button tidak paksa overflow saat ruang sempit
         if (canEdit && onEdit != null)
-          _ActionBtn(
-            label: 'Edit',
-            icon:  Icons.edit_rounded,
-            color: syntax.builtinFunc,
-            onTap: onEdit!,
+          Flexible(
+            child: _ActionBtn(
+              label: 'Edit',
+              icon:  Icons.edit_rounded,
+              color: syntax.builtinFunc,
+              onTap: onEdit!,
+            ),
           ),
         if (canEdit && canDelete) const SizedBox(width: 8),
         if (canDelete && onDelete != null)
-          _ActionBtn(
-            label: 'Delete',
-            icon:  Icons.delete_outline_rounded,
-            color: chrome.consoleTextError,
-            onTap: onDelete!,
+          Flexible(
+            child: _ActionBtn(
+              label: 'Delete',
+              icon:  Icons.delete_outline_rounded,
+              color: chrome.consoleTextError,
+              onTap: onDelete!,
+            ),
           ),
       ],
     ),
@@ -1100,12 +1162,21 @@ class _ActionBtn extends StatelessWidget {
         borderRadius: BorderRadius.circular(6),
         border: Border.all(color: color.withOpacity(0.25)),
       ),
+      // FIX: Row pakai min agar tidak paksa melebar, Text pakai ellipsis
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 13, color: color),
           const SizedBox(width: 5),
-          Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600)),
+          Flexible(
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: color, fontSize: 11, fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         ],
       ),
     ),
@@ -1394,6 +1465,7 @@ class _IndicatorActionSheet extends StatelessWidget {
               style: TextStyle(
                 color: syntax.plain, fontSize: 15, fontWeight: FontWeight.w700,
               ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
           const SizedBox(height: 8),

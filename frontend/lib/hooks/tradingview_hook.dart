@@ -1,24 +1,9 @@
 // =============================================================================
 // tradingview_hook.dart
-//
-// SCOPE FILE INI:
-//   - WorkspaceState       : state management folder & file (CRUD + server sync)
-//   - TabState             : state management tab editor
-//   - EditorThemeHookState : state management tema editor
-//   - TradingViewHook      : facade / backward-compat hook
-//
-// TIDAK ADA DI SINI (dipindah ke tradingview_pages.dart):
-//   - EditorPermission
-//   - IsolatedWorkspaceState
-//   - IsolatedTradingViewHook
-//   - IsolatedHookProvider
-//
-// Alasan: semua class "Isolated" bergantung pada EditorPermission yang
-// terkait logika UI/page, bukan logika data mentah. Memisahkannya di
-// pages.dart menghilangkan circular import dan duplicate-export error.
 // =============================================================================
 
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
@@ -28,10 +13,26 @@ import '../models/script_folder.dart';
 import '../utils/auth_storage.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  API Client helper
+//  _TvApi
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _TvApi {
+
+  static Future<Map<String, dynamic>> getWorkspace() async {
+    final res = await AuthStorage.get('/tradingview/workspace');
+    _checkStatus(res);
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  // Load folder + file milik satu indicator spesifik
+  static Future<Map<String, dynamic>> getIndicatorWorkspace(
+      String indicatorId) async {
+    final res = await AuthStorage.get(
+        '/tradingview/indicators/$indicatorId/workspace');
+    _checkStatus(res);
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
   static Future<http.Response> _delete(String path) async {
     final token = await AuthStorage.getToken();
     final uri   = Uri.parse('$kBaseUrl$path');
@@ -42,7 +43,6 @@ class _TvApi {
         if (token != null) 'Authorization': 'Bearer $token',
       },
     );
-
     if (response.statusCode == 401) {
       final refreshed = await AuthStorage.refreshAccessToken();
       if (refreshed) {
@@ -57,12 +57,6 @@ class _TvApi {
       }
     }
     return response;
-  }
-
-  static Future<Map<String, dynamic>> getWorkspace() async {
-    final res = await AuthStorage.get('/tradingview/workspace');
-    _checkStatus(res);
-    return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
   static Future<Map<String, dynamic>> createFolder({
@@ -85,7 +79,6 @@ class _TvApi {
     final body = <String, dynamic>{};
     if (name       != null) body['name']        = name;
     if (isExpanded != null) body['is_expanded'] = isExpanded;
-
     final res = await AuthStorage.patch(
       '/tradingview/workspace/folders/$folderId',
       body: body,
@@ -123,7 +116,6 @@ class _TvApi {
     final body = <String, dynamic>{};
     if (name    != null) body['name']    = name;
     if (content != null) body['content'] = content;
-
     final res = await AuthStorage.patch(
       '/tradingview/workspace/files/$fileId',
       body: body,
@@ -154,24 +146,37 @@ class _TvApi {
 //  Model parsers
 // ─────────────────────────────────────────────────────────────────────────────
 
-ScriptFile _fileFromJson(Map<String, dynamic> j) => ScriptFile(
-      id:             j['id']               as String,
-      name:           j['name']             as String,
-      content:        j['content']          as String? ?? '',
-      parentFolderId: j['parent_folder_id'] as String?,
-      createdAt:      DateTime.parse(j['created_at'] as String),
-      updatedAt:      DateTime.parse(j['updated_at'] as String),
-    );
+ScriptFile _fileFromJson(Map<String, dynamic> j) {
+  final rawParent = j['parent_folder_id'] as String?;
+  final id        = (j['id'] ?? j['_id'])?.toString();
+  assert(id != null, 'File JSON missing id: $j');
+  return ScriptFile(
+    id:             id ?? '',
+    name:           j['name']    as String,
+    content:        j['content'] as String? ?? '',
+    parentFolderId: (rawParent == null || rawParent.isEmpty) ? null : rawParent,
+    isShared:       j['is_shared'] as bool? ?? false,
+    createdAt:      DateTime.parse(j['created_at'] as String),
+    updatedAt:      DateTime.parse(j['updated_at'] as String),
+  );
+}
 
-ScriptFolder _folderFromJson(Map<String, dynamic> j) => ScriptFolder(
-      id:             j['id']               as String,
-      name:           j['name']             as String,
-      parentFolderId: j['parent_folder_id'] as String?,
-      isExpanded:     j['is_expanded']      as bool? ?? true,
-    );
+ScriptFolder _folderFromJson(Map<String, dynamic> j) {
+  final rawParent = j['parent_folder_id'] as String?;
+  final id        = (j['id'] ?? j['_id'])?.toString();
+  assert(id != null, 'Folder JSON missing id: $j');
+  return ScriptFolder(
+    id:             id ?? '',
+    name:           j['name'] as String,
+    parentFolderId: (rawParent == null || rawParent.isEmpty) ? null : rawParent,
+    isExpanded:     j['is_expanded']  as bool? ?? true,
+    isIndicator:    j['is_indicator'] as bool? ?? false,
+    isShared:       j['is_shared']    as bool? ?? false,
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  ID Generator (optimistic insert)
+//  ID Generator
 // ─────────────────────────────────────────────────────────────────────────────
 
 int _counter = 0;
@@ -228,9 +233,9 @@ class WorkspaceState extends ChangeNotifier {
   }
 
   List<String> _buildFolderSegments(String folderId) {
-    final segments    = <String>[];
-    String? current   = folderId;
-    var     safetyLimit = 20;
+    final segments  = <String>[];
+    String? current = folderId;
+    var safetyLimit = 20;
     while (current != null && safetyLimit-- > 0) {
       final folder = findFolder(current);
       if (folder == null) break;
@@ -289,9 +294,6 @@ class WorkspaceState extends ChangeNotifier {
     );
   }
 
-  /// Inject data lokal tanpa hit network.
-  /// Dipakai oleh IsolatedWorkspaceState._syncRootsToBase() agar
-  /// buildFolderTree() bisa menemukan data dari local _roots.
   void loadLocalData({
     required List<ScriptFolder> folders,
     required List<ScriptFile>   files,
@@ -302,7 +304,6 @@ class WorkspaceState extends ChangeNotifier {
     _files
       ..clear()
       ..addAll(files);
-
     for (final f in _folders) {
       _syncFolderFiles(f.id);
       _syncFolderChildren(f.id);
@@ -310,6 +311,49 @@ class WorkspaceState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── Protected: fetch workspace indicator spesifik ────────────────────────
+  // Dipanggil IsolatedWorkspaceState saat indicatorId != null.
+  @protected
+  Future<Map<String, dynamic>> fetchIndicatorWorkspace(String indicatorId) =>
+      _TvApi.getIndicatorWorkspace(indicatorId);
+
+  // ── Protected: apply raw JSON ke _folders/_files ─────────────────────────
+  // IsolatedWorkspaceState panggil ini setelah fetchIndicatorWorkspace.
+  @protected
+  Future<void> applyServerData(Map<String, dynamic> data) async {
+    _isLoading = true;
+    _error     = null;
+    notifyListeners();
+
+    try {
+      final rawFolders =
+          (data['folders'] as List? ?? []).cast<Map<String, dynamic>>();
+      final rawFiles =
+          (data['files'] as List? ?? []).cast<Map<String, dynamic>>();
+
+      debugPrint('[WS applyServerData] folders=${rawFolders.length} files=${rawFiles.length}');
+
+      _folders
+        ..clear()
+        ..addAll(rawFolders.map(_folderFromJson));
+      _files
+        ..clear()
+        ..addAll(rawFiles.map(_fileFromJson));
+
+      for (final f in _folders) {
+        _syncFolderFiles(f.id);
+        _syncFolderChildren(f.id);
+      }
+    } catch (e) {
+      _error = e.toString();
+      rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // ── loadFromServer: workspace umum ───────────────────────────────────────
   Future<void> loadFromServer() async {
     _isLoading = true;
     _error     = null;
@@ -319,6 +363,8 @@ class WorkspaceState extends ChangeNotifier {
       final data       = await _TvApi.getWorkspace();
       final rawFolders = (data['folders'] as List).cast<Map<String, dynamic>>();
       final rawFiles   = (data['files']   as List).cast<Map<String, dynamic>>();
+
+      debugPrint('[WS] folders=${rawFolders.length} files=${rawFiles.length}');
 
       _folders
         ..clear()
@@ -362,7 +408,8 @@ class WorkspaceState extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final json   = await _TvApi.createFolder(name: name, parentFolderId: parentFolderId);
+      final json   = await _TvApi.createFolder(
+          name: name, parentFolderId: parentFolderId);
       final realId = json['id'] as String;
       final idx    = _folders.indexWhere((f) => f.id == tempId);
       if (idx != -1) {

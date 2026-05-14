@@ -2,9 +2,17 @@
 // folder_tree_tile.dart
 // Path: frontend/lib/trading_screen/tradingview/components/folder_tree_tile.dart
 //
-// FIX BATCH 4: Tambah `onHoverFolder` & `onHoverFile` optional params untuk
-//   path detection. MouseRegion di folder row & FileTile children memanggil
-//   callback ini saat hover → _ActivePathBar di FileExplorerPanel update path.
+// FIX v_copy_path:
+//  - [FIXED] FileTile sebelumnya tidak di-pass `resolvedPath` → compile error
+//            "Required named parameter 'resolvedPath' must be provided".
+//  - [FIXED] onContextMenu signature di FolderTreeTile diperluas:
+//            dari `Future<void> Function(BuildContext, Offset, ScriptFile)`
+//            → `Future<void> Function(BuildContext, Offset, ScriptFile, String)`
+//            supaya resolved path bisa di-forward ke parent (FileExplorerPanel)
+//            yang memanggil showContextMenuFile(resolvedPath: ...).
+//  - [FIXED] FileTile onContextMenu lambda diupdate dari `(pos)` → `(pos, rp)`
+//            sesuai signature baru FileTile.
+//  - Semua fix sebelumnya (v_globalkey_safe, FocusNode leak, dll) IDENTIK.
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -28,14 +36,15 @@ class FolderTreeTile extends StatefulWidget {
   final EditorChromeColors      chrome;
   final EditorSyntaxColors      syntax;
   final String                  searchQuery;
-  final void Function(ScriptFile)                               onOpenFile;
-  final Future<void> Function(BuildContext, Offset, ScriptFile) onContextMenu;
-  final Future<void> Function(String)                           onNewFile;
-  final Future<void> Function(String?)                          onNewFolder;
-  final bool Function(ScriptFile)                               matchesSearch;
-  final bool Function(ScriptFolder)                             folderHasMatch;
+  final void Function(ScriptFile)                                          onOpenFile;
+  // [FIX] Tambah String resolvedPath di akhir supaya parent bisa forward
+  // ke showContextMenuFile(resolvedPath: rp)
+  final Future<void> Function(BuildContext, Offset, ScriptFile, String)   onContextMenu;
+  final Future<void> Function(String)                                      onNewFile;
+  final Future<void> Function(String?)                                     onNewFolder;
+  final bool Function(ScriptFile)                                          matchesSearch;
+  final bool Function(ScriptFolder)                                        folderHasMatch;
 
-  // ── NEW BATCH 4: Path hover callbacks (optional — aman kalau null) ─────────
   final void Function(ScriptFolder?)? onHoverFolder;
   final void Function(ScriptFile?)?   onHoverFile;
 
@@ -55,7 +64,6 @@ class FolderTreeTile extends StatefulWidget {
     required this.onNewFolder,
     required this.matchesSearch,
     required this.folderHasMatch,
-    // optional — default null supaya backward-compatible
     this.onHoverFolder,
     this.onHoverFile,
   });
@@ -68,18 +76,20 @@ class _FolderTreeTileState extends State<FolderTreeTile>
     with SingleTickerProviderStateMixin {
   late AnimationController _expandCtrl;
   late Animation<double>   _expandAnim;
-  bool _isHovered   = false;
-  bool _isRenaming  = false;
+  bool _isHovered  = false;
+  bool _isRenaming = false;
   late TextEditingController _renameCtrl;
-  late FocusNode _renameFocus;
+  late FocusNode             _renameFocus;
+
+  VoidCallback? _focusListener;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  ScriptFolder get folder  => widget.folder;
-  bool get isExpanded      => folder.isExpanded;
-  bool get isSearching     => widget.searchQuery.isNotEmpty;
-  bool get isShared        => widget.isShared;
-  bool get canModifyFolder => widget.perm.isAdmin || !isShared;
+  ScriptFolder get folder   => widget.folder;
+  bool get isExpanded       => folder.isExpanded;
+  bool get isSearching      => widget.searchQuery.isNotEmpty;
+  bool get isShared         => widget.isShared;
+  bool get canModifyFolder  => (widget.perm.isAdmin == true) || !isShared;
 
   double get _indent => widget.depth * 12.0 + 8.0;
 
@@ -99,24 +109,36 @@ class _FolderTreeTileState extends State<FolderTreeTile>
     _renameCtrl  = TextEditingController(text: folder.name);
     _renameFocus = FocusNode();
 
-    _renameFocus.addListener(() {
+    _focusListener = () {
       if (!_renameFocus.hasFocus && _isRenaming) _commitRename();
-    });
+    };
+    _renameFocus.addListener(_focusListener!);
   }
 
   @override
   void didUpdateWidget(FolderTreeTile old) {
     super.didUpdateWidget(old);
     if (isSearching && widget.folderHasMatch(folder) && !folder.isExpanded) {
-      _expandCtrl.forward();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _expandCtrl.forward();
+      });
     }
   }
 
   @override
   void dispose() {
+    if (_focusListener != null) {
+      _renameFocus.removeListener(_focusListener!);
+    }
     _expandCtrl.dispose();
-    _renameCtrl.dispose();
-    _renameFocus.dispose();
+
+    final ctrlRef  = _renameCtrl;
+    final focusRef = _renameFocus;
+    Future.microtask(() {
+      ctrlRef.dispose();
+      focusRef.dispose();
+    });
+
     super.dispose();
   }
 
@@ -146,6 +168,7 @@ class _FolderTreeTileState extends State<FolderTreeTile>
   }
 
   void _commitRename() {
+    if (!mounted) return;
     final newName = _renameCtrl.text.trim();
     if (newName.isNotEmpty && newName != folder.name) {
       widget.hook.workspace.renameFolder(folder.id, newName);
@@ -162,10 +185,10 @@ class _FolderTreeTileState extends State<FolderTreeTile>
       chrome:    widget.chrome,
       syntax:    widget.syntax,
       folder:    folder,
-      canCreate: widget.perm.canCreate,
+      canCreate: widget.perm.canCreate == true,
       canRename: canModifyFolder,
       canDelete: canModifyFolder && folder.parentId != null,
-      isAdmin:   widget.perm.isAdmin,
+      isAdmin:   widget.perm.isAdmin == true,
       isShared:  isShared,
     );
 
@@ -261,11 +284,11 @@ class _FolderTreeTileState extends State<FolderTreeTile>
     final syntax = widget.syntax;
 
     final filteredFiles = isSearching
-        ? folder.files.where(widget.matchesSearch).toList()
+        ? folder.files.where((f) => widget.matchesSearch(f)).toList()
         : folder.files;
 
     final filteredSubs = isSearching
-        ? folder.subFolders.where(widget.folderHasMatch).toList()
+        ? folder.subFolders.where((s) => widget.folderHasMatch(s)).toList()
         : folder.subFolders;
 
     return Column(
@@ -280,7 +303,6 @@ class _FolderTreeTileState extends State<FolderTreeTile>
               _showFolderContextMenu(context, details.globalPosition),
           child: MouseRegion(
             cursor:  SystemMouseCursors.click,
-            // FIX BATCH 4: fire hover callbacks untuk path detection
             onEnter: (_) {
               setState(() => _isHovered = true);
               widget.onHoverFolder?.call(folder);
@@ -363,7 +385,7 @@ class _FolderTreeTileState extends State<FolderTreeTile>
                   ],
 
                   // Action buttons (visible on hover)
-                  if (_isHovered && !_isRenaming && widget.perm.canCreate) ...[
+                  if (_isHovered && !_isRenaming && widget.perm.canCreate == true) ...[
                     const SizedBox(width: 2),
                     _FolderActionBtn(
                       icon:   Icons.add_rounded,
@@ -395,8 +417,12 @@ class _FolderTreeTileState extends State<FolderTreeTile>
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Files — teruskan onHoverFile ke setiap FileTile
+              // [FIX] Tambah resolvedPath: workspace.getFilePath(file.id)
+              // supaya FileTile punya path lengkap untuk di-copy.
+              // onContextMenu lambda diupdate ke (pos, rp) sesuai
+              // signature baru FileTile, lalu rp di-forward ke parent.
               ...filteredFiles.map((file) => FileTile(
+                key:           ValueKey('file_${file.id}'),
                 file:          file,
                 depth:         widget.depth + 1,
                 isActive:      widget.hook.tabs.activeFile?.id == file.id,
@@ -405,14 +431,15 @@ class _FolderTreeTileState extends State<FolderTreeTile>
                 chrome:        chrome,
                 syntax:        syntax,
                 onTap:         () => widget.onOpenFile(file),
-                onContextMenu: (pos) => widget.onContextMenu(context, pos, file),
+                resolvedPath:  widget.hook.workspace.getFilePath(file.id), // [FIX]
+                onContextMenu: (pos, rp) =>
+                    widget.onContextMenu(context, pos, file, rp),          // [FIX]
                 searchQuery:   widget.searchQuery,
-                // FIX BATCH 4: teruskan hover callback
                 onHoverFile:   widget.onHoverFile,
               )),
 
-              // Subfolders (recursive) — teruskan kedua callbacks
               ...filteredSubs.map((sub) => FolderTreeTile(
+                key:            ValueKey('folder_${sub.id}'),
                 folder:         sub,
                 depth:          widget.depth + 1,
                 isShared:       isShared,
@@ -425,9 +452,8 @@ class _FolderTreeTileState extends State<FolderTreeTile>
                 onContextMenu:  widget.onContextMenu,
                 onNewFile:      widget.onNewFile,
                 onNewFolder:    widget.onNewFolder,
-                matchesSearch:  widget.matchesSearch,
-                folderHasMatch: widget.folderHasMatch,
-                // FIX BATCH 4: propagate ke nested tiles
+                matchesSearch:  (f) => widget.matchesSearch(f),
+                folderHasMatch: (f) => widget.folderHasMatch(f),
                 onHoverFolder:  widget.onHoverFolder,
                 onHoverFile:    widget.onHoverFile,
               )),

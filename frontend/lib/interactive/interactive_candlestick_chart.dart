@@ -101,8 +101,9 @@ class _InteractiveCandlestickChartState
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Painter — tidak ada perubahan dari versi sebelumnya
+// Painter
 // Koordinat X: x = (i * candleWidth) + offset.dx
+// Koordinat Y: y = height * (1 - normalizedPrice) + offset.dy  ← FIX vertical pan
 // Konsisten dengan GridInteractive dan ChartViewport.indexToX()
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -132,6 +133,10 @@ class InteractiveCandlestickPainter extends CustomPainter {
     final priceRange = maxPrice - minPrice;
     if (priceRange == 0) return;
 
+    // FIX: clip canvas agar candle yang keluar batas tidak kelihatan
+    canvas.save();
+    canvas.clipRect(Rect.fromLTWH(0, 0, size.width, size.height));
+
     final candleWidth   = size.width * scale / candles.length;
     final bodyWidth     = (candleWidth * 0.7).clamp(1.5, 24.0);
     final halfBodyWidth = bodyWidth / 2;
@@ -140,13 +145,14 @@ class InteractiveCandlestickPainter extends CustomPainter {
       // Formula X: konsisten dengan GridInteractive dan ChartViewport
       final cx = (i * candleWidth) + offset.dx;
 
-      // Viewport culling
+      // Viewport culling — horizontal
       if (cx + halfBodyWidth < 0 || cx - halfBodyWidth > size.width) continue;
 
       final candle    = candles[i];
       final isBullish = candle.close >= candle.open;
       final color     = isBullish ? style.bullishColor : style.bearishColor;
 
+      // FIX: semua Y sekarang pakai offset.dy lewat _priceToY
       final highY  = _priceToY(candle.high,  minPrice, maxPrice, size.height);
       final lowY   = _priceToY(candle.low,   minPrice, maxPrice, size.height);
       final openY  = _priceToY(candle.open,  minPrice, maxPrice, size.height);
@@ -194,6 +200,8 @@ class InteractiveCandlestickPainter extends CustomPainter {
       }
     }
 
+    canvas.restore();
+
     _drawPriceLabels(canvas, size, minPrice, maxPrice);
   }
 
@@ -202,7 +210,8 @@ class InteractiveCandlestickPainter extends CustomPainter {
     final tp = TextPainter(textDirection: TextDirection.ltr);
     for (int i = 0; i <= 5; i++) {
       final price = minPrice + ((maxPrice - minPrice) / 5) * i;
-      final y     = size.height - ((size.height / 5) * i);
+      // FIX: label Y juga ikut offset.dy supaya label tetap align sama candle
+      final y = _priceToY(price, minPrice, maxPrice, size.height);
       tp.text = TextSpan(
         text: price.toStringAsFixed(2),
         style: TextStyle(
@@ -215,11 +224,14 @@ class InteractiveCandlestickPainter extends CustomPainter {
     }
   }
 
+  // FIX: tambah offset.dy — ini root cause vertical pan tidak jalan
+  // Sebelumnya: height * (1 - normalized)  → offset.dy diabaikan total
+  // Sekarang  : height * (1 - normalized) + offset.dy  → pan atas-bawah jalan
   double _priceToY(
       double price, double minPrice, double maxPrice, double height) {
     final range = maxPrice - minPrice;
-    if (range == 0) return height / 2;
-    return height * (1.0 - (price - minPrice) / range);
+    if (range == 0) return height / 2 + offset.dy;
+    return height * (1.0 - (price - minPrice) / range) + offset.dy;
   }
 
   @override

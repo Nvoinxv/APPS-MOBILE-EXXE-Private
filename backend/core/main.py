@@ -140,6 +140,7 @@ def read_root():
             "tv_create_indicator": "POST /tradingview/indicators",
             "tv_update_indicator": "PATCH /tradingview/indicators/{id}",
             "tv_delete_indicator": "DELETE /tradingview/indicators/{id}",
+            "tv_indicator_workspace": "GET  /tradingview/indicators/{id}/workspace",
             "tv_toggle_favorite":  "POST /tradingview/indicators/{id}/favorite",
         },
     }

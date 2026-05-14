@@ -2,22 +2,15 @@
 // tradingview_pages.dart
 // Path: frontend/lib/pages/tradingview_pages.dart
 //
-// SCOPE FILE INI:
-//   - EditorPermission         : hak akses user di editor
-//   - IsolatedWorkspaceState   : extends WorkspaceState, tambah permission logic
-//   - IsolatedTradingViewHook  : hook utama untuk editor page
-//   - IsolatedHookProvider     : InheritedWidget untuk expose hook ke subtree
-//   - TradingViewPages         : StatefulWidget entry point
-//   - Semua widget UI editor   : shell, toolbar, editor, gutter, dialog, dll
+// FIX editorContent:
+//   TradingViewPages sekarang punya optional param `editorContent`.
+//   Kalau diisi (saat Edit indicator), _TradingViewShell render widget itu
+//   langsung → TradingViewCodeEditorScreen dengan FILES tab + folder tree.
+//   Kalau null (buka editor biasa), fallback ke _EditorReadyState seperti dulu.
 //
-// TIDAK ADA DI SINI:
-//   - WorkspaceState, TabState, EditorThemeHookState, TradingViewHook
-//     → semua ada di tradingview_hook.dart
-//
-// RULE IMPORT:
-//   File lain yang butuh EditorPermission / IsolatedTradingViewHook /
-//   IsolatedHookProvider → cukup import file INI saja.
-//   Jangan import tradingview_hook.dart sekaligus di file yang sama.
+//   Kenapa pakai param bukan import langsung:
+//   tradingviewcodeeditor_screen.dart sudah import tradingview_pages.dart,
+//   jadi tidak bisa dibalik (circular import). Solusi: caller inject widget-nya.
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -51,7 +44,6 @@ class EditorPermission {
   bool get isAdmin     => role == UserRole.admin;
   bool get isExclusive => role == UserRole.exclusive;
 
-  /// Semua file/folder shared milik admin menggunakan ID ini sebagai prefix.
   static const String sharedOwnerId = 'admin_shared';
 
   bool canSeeFile({required String ownerId}) {
@@ -82,15 +74,10 @@ class IsolatedWorkspaceState extends WorkspaceState {
   late List<ScriptFolder> _roots;
 
   IsolatedWorkspaceState({required this.permission}) : super() {
-    _roots = _buildIsolatedWorkspace(permission);
-    // Sync _roots ke _folders & _files milik WorkspaceState (parent)
-    // agar buildFolderTree() bisa menemukan data tanpa perlu server.
-    _syncRootsToBase();
+    _roots = [];
   }
 
   List<ScriptFolder> get roots => _roots;
-
-  // ── Sync lokal _roots ke internal list WorkspaceState ────────────────────
 
   void _syncRootsToBase() {
     final allFolders = <ScriptFolder>[];
@@ -112,8 +99,6 @@ class IsolatedWorkspaceState extends WorkspaceState {
       }
     }
   }
-
-  // ── Build initial workspace (local fallback) ──────────────────────────────
 
   static List<ScriptFolder> _buildIsolatedWorkspace(EditorPermission perm) {
     final uid    = perm.userId;
@@ -175,31 +160,28 @@ class IsolatedWorkspaceState extends WorkspaceState {
     return [myRoot, sharedRoot];
   }
 
-  // ── Visible roots ─────────────────────────────────────────────────────────
-
   List<ScriptFolder> get visibleRoots {
     if (permission.isAdmin) return _roots.toList();
     return _roots.where((r) {
-      final isOwn    = r.id.contains(permission.userId);
-      final isShared = r.id.contains(EditorPermission.sharedOwnerId);
-      return isOwn || isShared;
+      final isOwnById    = r.id.contains(permission.userId);
+      final isSharedById = r.id.contains(EditorPermission.sharedOwnerId);
+      final isServerData = !isOwnById && !isSharedById;
+      return isOwnById || isServerData || isSharedById;
     }).toList();
   }
 
-  // ── Ownership helpers ─────────────────────────────────────────────────────
-
   bool isSharedFile(ScriptFile file) =>
+      file.isShared ||
       file.id.contains(EditorPermission.sharedOwnerId) ||
       (file.parentFolderId?.contains(EditorPermission.sharedOwnerId) ?? false);
 
   bool isOwnFile(ScriptFile file) =>
       file.id.contains(permission.userId) ||
-      (file.parentFolderId?.contains(permission.userId) ?? false);
+      (file.parentFolderId?.contains(permission.userId) ?? false) ||
+      !isSharedFile(file);
 
   String resolveOwnerId(ScriptFile file) =>
       isSharedFile(file) ? EditorPermission.sharedOwnerId : permission.userId;
-
-  // ── Guarded CRUD ──────────────────────────────────────────────────────────
 
   Future<ScriptFile?> addFileGuarded(String parentFolderId, String name) async {
     if (parentFolderId.contains(EditorPermission.sharedOwnerId) &&
@@ -231,27 +213,37 @@ class IsolatedWorkspaceState extends WorkspaceState {
     return true;
   }
 
-  // ── Override loadFromServer: merge server data + rebuild _roots ───────────
-
   @override
-  Future<void> loadFromServer() async {
+  Future<void> loadFromServer({String? indicatorId}) async {
     try {
-      await super.loadFromServer();
-      // Rebuild _roots dari data server yang sudah masuk ke _folders/_files
+      if (indicatorId != null) {
+        final data = await fetchIndicatorWorkspace(indicatorId);
+        await applyServerData(data);
+      } else {
+        await super.loadFromServer();
+      }
+
+      debugPrint('[IWS] done: folders=${folders.length} files=${files.length}');
+      for (final f in folders) {
+        debugPrint('[IWS FOLDER] id=${f.id} name=${f.name}');
+      }
+      for (final f in files) {
+        debugPrint('[IWS FILE] id=${f.id} name=${f.name}');
+      }
+
       _roots = buildFolderTree();
-      if (_roots.isEmpty) {
-        // Server kosong → fallback ke local
+      debugPrint('[IWS] _roots count: ${_roots.length}');
+      notifyListeners();
+
+    } catch (e) {
+      debugPrint('[IWS] FAILED: $e');
+      if (files.isEmpty && folders.isEmpty) {
         _roots = _buildIsolatedWorkspace(permission);
         _syncRootsToBase();
       }
-    } catch (_) {
-      // Gagal konek server → _roots lokal yang sudah di-sync di constructor
-      // tetap valid. Re-throw agar FutureBuilder bisa tampilkan banner error.
       rethrow;
     }
   }
-
-  // ── Template scripts ──────────────────────────────────────────────────────
 
   static String _starterScript(EditorPermission perm) => '''# EXXE.LAB Script Editor
 # Role: ${perm.isAdmin ? 'Admin' : 'Exclusive'} — User: ${perm.userId}
@@ -343,21 +335,24 @@ class IsolatedTradingViewHook {
   final IsolatedWorkspaceState workspace;
   final TabState               tabs;
   final EditorThemeHookState   editorTheme;
+  final String?                indicatorId;
 
-  IsolatedTradingViewHook({required this.permission})
-      : workspace   = IsolatedWorkspaceState(permission: permission),
+  IsolatedTradingViewHook({
+    required this.permission,
+    this.indicatorId,
+  })  : workspace   = IsolatedWorkspaceState(permission: permission),
         tabs        = TabState(),
         editorTheme = EditorThemeHookState();
 
-  // ── init(): coba server dulu, fallback ke local ───────────────────────────
-
   Future<void> init() async {
     try {
-      await workspace.loadFromServer();
-    } catch (_) {
-      // Server gagal — data lokal sudah di-sync di constructor.
+      await workspace.loadFromServer(indicatorId: indicatorId);
+    } catch (e, st) {
+      debugPrint('[IsolatedHook.init] FAILED: $e\n$st');
+      rethrow;
+    } finally {
+      _openDefaultFile();
     }
-    _openDefaultFile();
   }
 
   void _openDefaultFile() {
@@ -439,20 +434,13 @@ class IsolatedHookProvider extends InheritedWidget {
   static IsolatedTradingViewHook of(BuildContext context) {
     final p =
         context.dependOnInheritedWidgetOfExactType<IsolatedHookProvider>();
-    assert(
-      p != null,
-      'IsolatedHookProvider not found in widget tree.\n'
-      'Pastikan widget dibungkus dengan IsolatedHookProvider.',
-    );
+    assert(p != null,
+        'IsolatedHookProvider not found. Pastikan widget dibungkus IsolatedHookProvider.');
     return p!.hook;
   }
 
-  /// Nullable variant — tidak throw jika tidak ditemukan.
-  static IsolatedTradingViewHook? maybeOf(BuildContext context) {
-    return context
-        .dependOnInheritedWidgetOfExactType<IsolatedHookProvider>()
-        ?.hook;
-  }
+  static IsolatedTradingViewHook? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<IsolatedHookProvider>()?.hook;
 
   @override
   bool updateShouldNotify(IsolatedHookProvider old) => old.hook != hook;
@@ -463,13 +451,22 @@ class IsolatedHookProvider extends InheritedWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class TradingViewPages extends StatefulWidget {
-  final String token;
-  final String userId;
+  final String  token;
+  final String  userId;
+  final String? indicatorId;
+
+  // FIX: editorContent — kalau diisi, _TradingViewShell render ini
+  // bukan _EditorReadyState. Diisi dengan TradingViewCodeEditorScreen()
+  // dari _onIndicatorEdit supaya ada FILE explorer lengkap.
+  // Null = buka editor simple seperti biasa (backward compat).
+  final Widget? editorContent;
 
   const TradingViewPages({
     super.key,
     required this.token,
     required this.userId,
+    this.indicatorId,
+    this.editorContent, // optional
   });
 
   @override
@@ -487,8 +484,13 @@ class _TradingViewPagesState extends State<TradingViewPages> {
     _permission = EditorPermission.fromToken(widget.token, widget.userId);
 
     if (_permission.canEnterEditor) {
-      _hook       = IsolatedTradingViewHook(permission: _permission);
-      _initFuture = _hook.init();
+      _hook = IsolatedTradingViewHook(
+        permission:  _permission,
+        indicatorId: widget.indicatorId,
+      );
+      _initFuture = _hook.init().catchError((e) {
+        debugPrint('[TradingViewPages] init error: $e');
+      });
     } else {
       _initFuture = Future.value();
     }
@@ -514,11 +516,12 @@ class _TradingViewPagesState extends State<TradingViewPages> {
         }
 
         return IsolatedHookProvider(
-          hook:  _hook,
+          hook: _hook,
           child: _TradingViewShell(
-            permission:  _permission,
-            hook:        _hook,
-            serverError: snapshot.hasError ? snapshot.error.toString() : null,
+            permission:    _permission,
+            hook:          _hook,
+            serverError:   snapshot.hasError ? snapshot.error.toString() : null,
+            editorContent: widget.editorContent, // pass ke shell
           ),
         );
       },
@@ -569,11 +572,13 @@ class _TradingViewShell extends StatelessWidget {
   final EditorPermission        permission;
   final IsolatedTradingViewHook hook;
   final String?                 serverError;
+  final Widget?                 editorContent; // FIX: injected from TradingViewPages
 
   const _TradingViewShell({
     required this.permission,
     required this.hook,
     this.serverError,
+    this.editorContent,
   });
 
   @override
@@ -595,13 +600,18 @@ class _TradingViewShell extends StatelessWidget {
 
                 if (serverError != null)
                   _ServerErrorBanner(
-                    error:  serverError!,
-                    chrome: chrome,
-                    hook:   hook,
+                    error:       serverError!,
+                    chrome:      chrome,
+                    hook:        hook,
+                    indicatorId: hook.indicatorId,
                   ),
 
                 Expanded(
-                  child: _EditorReadyState(
+                  // FIX: kalau editorContent diisi (dari _onIndicatorEdit),
+                  // render itu → TradingViewCodeEditorScreen yang punya
+                  // FILES tab + folder tree lengkap dari backend.
+                  // Kalau null, render _EditorReadyState seperti biasa.
+                  child: editorContent ?? _EditorReadyState(
                     permission: permission,
                     hook:       hook,
                   ),
@@ -623,11 +633,13 @@ class _ServerErrorBanner extends StatelessWidget {
   final String                  error;
   final EditorChromeColors      chrome;
   final IsolatedTradingViewHook hook;
+  final String?                 indicatorId;
 
   const _ServerErrorBanner({
     required this.error,
     required this.chrome,
     required this.hook,
+    this.indicatorId,
   });
 
   @override
@@ -652,7 +664,8 @@ class _ServerErrorBanner extends StatelessWidget {
             ),
           ),
           GestureDetector(
-            onTap: () => hook.workspace.loadFromServer(),
+            onTap: () =>
+                hook.workspace.loadFromServer(indicatorId: indicatorId),
             child: Text(
               'Retry',
               style: TextStyle(
@@ -900,7 +913,7 @@ class _UnsavedDialog extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  _EditorReadyState
+//  _EditorReadyState  (fallback kalau editorContent == null)
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _EditorReadyState extends StatelessWidget {
@@ -1117,9 +1130,9 @@ class _LiveLineGutterState extends State<_LiveLineGutter> {
     final chrome = widget.theme.chrome;
     final typo   = widget.theme.typography;
     return Container(
-      color:   chrome.gutterBackground,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
+        color:  chrome.gutterBackground,
         border: Border(right: BorderSide(color: chrome.gutterBorder)),
       ),
       child: Column(

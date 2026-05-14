@@ -393,8 +393,8 @@ class ApiConstants {
   ApiConstants._();
 
   // Ganti dengan IP/domain backend lo
-  static const String baseUrl = 'http://10.0.2.2:8080'; // emulator Android
-  // static const String baseUrl = 'http://localhost:8000'; // web/desktop
+  // static const String baseUrl = 'http://10.0.2.2:8080'; // emulator Android
+  static const String baseUrl = 'http://localhost:8080'; // web/desktop
   // static const String baseUrl = 'https://api.exxelab.com'; // production
 
   static const String execute = '$baseUrl/execute';
