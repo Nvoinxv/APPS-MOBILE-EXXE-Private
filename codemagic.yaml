@@ -1,16 +1,23 @@
 workflows:
   flutter-app:
     name: Flutter App
+
     environment:
       flutter: stable
+      xcode: latest
 
     scripts:
-      - name: Set working directory
+      - name: Flutter pub get
         script: |
           cd frontend
           flutter pub get
 
-      - name: Build APK
+      - name: Build Android APK
         script: |
           cd frontend
-          flutter build apk
+          flutter build apk --release
+
+      - name: Build iOS IPA
+        script: |
+          cd frontend
+          flutter build ipa --release --no-codesign
