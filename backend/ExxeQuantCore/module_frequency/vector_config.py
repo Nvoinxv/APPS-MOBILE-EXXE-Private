@@ -1,1 +1,0 @@
-# Config per vector (period, type, smoothing)

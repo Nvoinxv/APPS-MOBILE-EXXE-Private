@@ -1,1 +1,0 @@
-# SMA, EMA, WMA, RMA universal

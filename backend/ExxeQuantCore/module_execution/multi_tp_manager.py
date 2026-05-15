@@ -1,1 +1,0 @@
-# Logic cek TP1 s/d TP5 per bar
