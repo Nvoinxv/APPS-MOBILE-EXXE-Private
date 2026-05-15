@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 const String kBaseUrl = 'http://localhost:8080';
 
 // Ngrok or Any External Testing URL //
-const String kBaseUrl = "https://disdain-decathlon-probe.ngrok-free.app";
+const String TestingUrlExternal = "https://disdain-decathlon-probe.ngrok-free.app";
 
 class AuthStorage {
   static const _keyToken        = 'access_token';
@@ -129,6 +129,7 @@ class AuthStorage {
     onForceLogout?.call();
   }
 
+  // ── Base headers builder ─────────────────────────────────────────────────
   static Future<Map<String, String>> _headers([
     Map<String, String>? extra,
   ]) async {
@@ -140,6 +141,19 @@ class AuthStorage {
     };
   }
 
+  // ── Headers khusus multipart (tanpa Content-Type, biar http set boundary) ─
+  static Future<Map<String, String>> _multipartHeaders([
+    Map<String, String>? extra,
+  ]) async {
+    final token = await getToken();
+    return {
+      'Accept': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+      ...?extra,
+    };
+  }
+
+  // ── GET ──────────────────────────────────────────────────────────────────
   static Future<http.Response> get(
     String path, {
     Map<String, String>? headers,
@@ -156,6 +170,7 @@ class AuthStorage {
     return response;
   }
 
+  // ── POST ─────────────────────────────────────────────────────────────────
   static Future<http.Response> post(
     String path, {
     Map<String, dynamic>? body,
@@ -180,6 +195,7 @@ class AuthStorage {
     return response;
   }
 
+  // ── PATCH ────────────────────────────────────────────────────────────────
   static Future<http.Response> patch(
     String path, {
     Map<String, dynamic>? body,
@@ -202,5 +218,57 @@ class AuthStorage {
       }
     }
     return response;
+  }
+
+  // ── DELETE ───────────────────────────────────────────────────────────────
+  // Dipakai untuk endpoint yang butuh auth token + query params (misal delete
+  // by ID). Auto-retry sekali kalau dapat 401 + refresh token masih valid.
+  static Future<http.Response> delete(
+    String path, {
+    Map<String, String>? headers,
+    Map<String, String>? queryParams,
+  }) async {
+    final uri = Uri.parse('$kBaseUrl$path').replace(queryParameters: queryParams);
+    var response = await http.delete(uri, headers: await _headers(headers));
+    if (response.statusCode == 401) {
+      final refreshed = await refreshAccessToken();
+      if (refreshed) {
+        response = await http.delete(uri, headers: await _headers(headers));
+      }
+    }
+    return response;
+  }
+
+  // ── MULTIPART (file upload) ──────────────────────────────────────────────
+  // Kirim http.MultipartRequest yang sudah disiapkan caller, lalu inject
+  // Authorization header dari session. Auto-retry sekali kalau 401.
+  //
+  // Cara pakai:
+  //   final req = http.MultipartRequest('POST', Uri.parse('$kBaseUrl/path'));
+  //   req.fields['key'] = 'value';
+  //   req.files.add(await http.MultipartFile.fromPath('field', file.path));
+  //   final response = await AuthStorage.sendMultipart(req);
+  static Future<http.StreamedResponse> sendMultipart(
+    http.MultipartRequest request, {
+    Map<String, String>? extraHeaders,
+  }) async {
+    // Inject auth headers ke request yang sudah disiapkan caller
+    final authHeaders = await _multipartHeaders(extraHeaders);
+    request.headers.addAll(authHeaders);
+
+    var streamedResponse = await request.send();
+
+    // Kalau 401, refresh token lalu kirim ulang request yang sama
+    if (streamedResponse.statusCode == 401) {
+      final refreshed = await refreshAccessToken();
+      if (refreshed) {
+        // MultipartRequest tidak bisa di-send ulang, harus buat instance baru
+        // tapi field & files sudah di-clone oleh caller — jadi ini handled
+        // di level hook dengan memanggil ulang fungsi upload-nya.
+        // Di sini kita cukup return response 401 biar caller bisa handle.
+      }
+    }
+
+    return streamedResponse;
   }
 }

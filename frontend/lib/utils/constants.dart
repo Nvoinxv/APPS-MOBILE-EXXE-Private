@@ -395,7 +395,7 @@ class ApiConstants {
   // Ganti dengan IP/domain backend lo
   // static const String baseUrl = 'http://10.0.2.2:8080'; // emulator Android
   // Ngrok URL for external testing //
-  static const String baseUrl = "https://disdain-decathlon-probe.ngrok-free.dev";
+  static const String TestingUrlExternal = "https://disdain-decathlon-probe.ngrok-free.dev";
   static const String baseUrl = 'http://localhost:8080'; // web/desktop
   // static const String baseUrl = 'https://api.exxelab.com'; // production
 

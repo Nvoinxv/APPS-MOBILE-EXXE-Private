@@ -1,32 +1,39 @@
 // lib/hooks/indikator_hook.dart
-
-import 'package:http/http.dart' as http;
 import 'dart:convert';
-
+import 'package:http/http.dart' as http;
 import '../models/script_file.dart';
+import '../utils/auth_storage.dart';
 import '../postingan/postingan_tradingview.dart';
 
 class Indicator_Exclusive_Hook {
-  static const String baseUrl = "http://localhost:8080";
+  // ─── base URL pakai TestingUrlExternal dari auth_storage ────────────────
+  static const String _base = TestingUrlExternal;
 
   // ===============================
   // GET ALL INDICATORS
   // ===============================
-  static Future<Map<String, dynamic>> GetAllIndicators({
-    required String token,
-  }) async {
+  static Future<Map<String, dynamic>> GetAllIndicators() async {
     try {
+      final token = await AuthStorage.getToken();
       final response = await http.get(
-        Uri.parse("$baseUrl/tradingview/indicators"),
+        Uri.parse("$_base/tradingview/indicators"),
         headers: {
-          "Authorization": "Bearer $token",
+          "Authorization": "Bearer ${token ?? ''}",
           "Accept": "application/json",
         },
       );
 
+      // Auto-refresh jika 401
+      if (response.statusCode == 401) {
+        final refreshed = await AuthStorage.refreshAccessToken();
+        if (!refreshed) {
+          return {"success": false, "message": "Session expired. Silakan login ulang."};
+        }
+        return GetAllIndicators(); // retry setelah refresh
+      }
+
       if (response.statusCode == 200) {
         final List<dynamic> jsonList = jsonDecode(response.body);
-
         if (jsonList is! List) {
           return {
             "success": false,
@@ -40,10 +47,7 @@ class Indicator_Exclusive_Hook {
             .whereType<IndicatorMeta>()
             .toList();
 
-        return {
-          "success": true,
-          "data": indicators,
-        };
+        return {"success": true, "data": indicators};
       }
 
       return {
@@ -51,10 +55,7 @@ class Indicator_Exclusive_Hook {
         "message": "Status ${response.statusCode}: ${response.body}",
       };
     } catch (e) {
-      return {
-        "success": false,
-        "error": e.toString(),
-      };
+      return {"success": false, "error": e.toString()};
     }
   }
 
@@ -62,17 +63,35 @@ class Indicator_Exclusive_Hook {
   // DELETE INDICATOR
   // ===============================
   static Future<Map<String, dynamic>> DeleteIndicator({
-    required String token,
     required String indicatorId,
   }) async {
     try {
-      final response = await http.delete(
-        Uri.parse("$baseUrl/tradingview/indicators/$indicatorId"),
+      final token = await AuthStorage.getToken();
+      final uri   = Uri.parse("$_base/tradingview/indicators/$indicatorId");
+
+      var response = await http.delete(
+        uri,
         headers: {
-          "Authorization": "Bearer $token",
+          "Authorization": "Bearer ${token ?? ''}",
           "Accept": "application/json",
         },
       );
+
+      // Auto-refresh jika 401
+      if (response.statusCode == 401) {
+        final refreshed = await AuthStorage.refreshAccessToken();
+        if (!refreshed) {
+          return {"success": false, "message": "Session expired. Silakan login ulang."};
+        }
+        final newToken = await AuthStorage.getToken();
+        response = await http.delete(
+          uri,
+          headers: {
+            "Authorization": "Bearer ${newToken ?? ''}",
+            "Accept": "application/json",
+          },
+        );
+      }
 
       if (response.statusCode == 204) {
         return {"success": true, "message": "Berhasil dihapus"};
@@ -107,12 +126,13 @@ class Indicator_Exclusive_Hook {
         authorLabel: j["author_label"] as String? ?? "Unknown",
         tags: (j["tags"] as List<dynamic>?)
                 ?.map((t) => t.toString())
-                .toList() ?? [],
-        previewCode: j["preview_code"]   as String? ?? "",
+                .toList() ??
+            [],
+        previewCode: j["preview_code"] as String? ?? "",
         linkedFile: ScriptFile(
-          id:        j["id"]          as String,
-          name:      j["script_name"] as String? ?? "indicator.py",
-          content:   j["script_content"] as String? ?? "",
+          id:        j["id"]              as String,
+          name:      j["script_name"]     as String? ?? "indicator.py",
+          content:   j["script_content"]  as String? ?? "",
           createdAt: createdAt,
           updatedAt: updatedAt,
         ),

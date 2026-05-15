@@ -1,10 +1,11 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../utils/auth_storage.dart';
+
+// Base URL — pakai TestingUrlExternal dari auth_storage.dart
+const String _base = TestingUrlExternal;
 
 class Payment_Hook {
-  // Local host dulu //
-  // Belum production //
-  static const String baseUrl = "http://127.0.0.1:8080";
 
   // ======================================
   // CHECKOUT PAYMENT (CREATE TRANSACTION)
@@ -17,23 +18,41 @@ class Payment_Hook {
     required String planType,   // monthly | semi_annual | annual
   }) async {
     try {
+      final token = await AuthStorage.getToken();
+
       // user_wallet → query param
       // plan_type   → request body (embed: true)
-      final uri = Uri.parse("$baseUrl/checkout").replace(
-        queryParameters: {
-          "user_wallet": userWallet,
-        },
+      final uri = Uri.parse("$_base/checkout").replace(
+        queryParameters: {"user_wallet": userWallet},
       );
 
-      final response = await http.post(
+      var response = await http.post(
         uri,
         headers: {
-          "Content-Type": "application/json",
+          "Content-Type":  "application/json",
+          if (token != null && token.isNotEmpty)
+            "Authorization": "Bearer $token",
         },
-        body: jsonEncode({
-          "plan_type": planType,
-        }),
+        body: jsonEncode({"plan_type": planType}),
       );
+
+      // Auto-refresh 401
+      if (response.statusCode == 401) {
+        final refreshed = await AuthStorage.refreshAccessToken();
+        if (!refreshed) {
+          return {"success": false, "message": "Session expired. Silakan login ulang."};
+        }
+        final newToken = await AuthStorage.getToken();
+        response = await http.post(
+          uri,
+          headers: {
+            "Content-Type":  "application/json",
+            if (newToken != null && newToken.isNotEmpty)
+              "Authorization": "Bearer $newToken",
+          },
+          body: jsonEncode({"plan_type": planType}),
+        );
+      }
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -62,15 +81,9 @@ class Payment_Hook {
         };
       }
 
-      return {
-        "success": false,
-        "message": response.body,
-      };
+      return {"success": false, "message": response.body};
     } catch (e) {
-      return {
-        "success": false,
-        "error": e.toString(),
-      };
+      return {"success": false, "error": e.toString()};
     }
   }
 
@@ -85,9 +98,32 @@ class Payment_Hook {
     required String orderId,
   }) async {
     try {
-      final response = await http.get(
-        Uri.parse("$baseUrl/status/$orderId"),
+      final token = await AuthStorage.getToken();
+      final uri   = Uri.parse("$_base/status/$orderId");
+
+      var response = await http.get(
+        uri,
+        headers: {
+          if (token != null && token.isNotEmpty)
+            "Authorization": "Bearer $token",
+        },
       );
+
+      // Auto-refresh 401
+      if (response.statusCode == 401) {
+        final refreshed = await AuthStorage.refreshAccessToken();
+        if (!refreshed) {
+          return {"success": false, "message": "Session expired. Silakan login ulang."};
+        }
+        final newToken = await AuthStorage.getToken();
+        response = await http.get(
+          uri,
+          headers: {
+            if (newToken != null && newToken.isNotEmpty)
+              "Authorization": "Bearer $newToken",
+          },
+        );
+      }
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -100,7 +136,6 @@ class Payment_Hook {
             "plan":        data["plan"],
             "user_wallet": data["user_wallet"],
             "message":     data["message"],
-
             // Cuma ada kalau status == "paid"
             if (data["status"] == "paid") ...{
               "tx_hash":      data["tx_hash"],
@@ -112,21 +147,12 @@ class Payment_Hook {
       }
 
       if (response.statusCode == 404) {
-        return {
-          "success": false,
-          "message": "Order tidak ditemukan",
-        };
+        return {"success": false, "message": "Order tidak ditemukan"};
       }
 
-      return {
-        "success": false,
-        "message": response.body,
-      };
+      return {"success": false, "message": response.body};
     } catch (e) {
-      return {
-        "success": false,
-        "error": e.toString(),
-      };
+      return {"success": false, "error": e.toString()};
     }
   }
 }

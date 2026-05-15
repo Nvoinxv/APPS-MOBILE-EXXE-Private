@@ -1,109 +1,106 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../utils/auth_storage.dart';
+
+// Base URL — pakai TestingUrlExternal dari auth_storage.dart
+const String _base = TestingUrlExternal;
 
 class Quant_Exclusive_Hook {
-  static const String baseUrl = "http://127.0.0.1:8080";
 
   // ===============================
-  // GET ALL QUANT //
+  // GET ALL QUANT
   // ===============================
-  static Future<Map<String, dynamic>> GetAllQuantExclusive({
-    required String token,
-  }) async {
+  static Future<Map<String, dynamic>> GetAllQuantExclusive() async {
     try {
-      final response = await http.get(
-        Uri.parse("$baseUrl/get-quant-exclusive"),  // ✅ Fixed endpoint
-        headers: {
-          "Authorization": "Bearer $token",
+      final token = await AuthStorage.getToken();
+      final uri   = Uri.parse("$_base/get-quant-exclusive");
+
+      var response = await http.get(uri, headers: {
+        "Authorization": "Bearer ${token ?? ''}",
+        "Accept": "application/json",
+      });
+
+      // Auto-refresh 401
+      if (response.statusCode == 401) {
+        final refreshed = await AuthStorage.refreshAccessToken();
+        if (!refreshed) {
+          return {"success": false, "message": "Session expired. Silakan login ulang."};
+        }
+        final newToken = await AuthStorage.getToken();
+        response = await http.get(uri, headers: {
+          "Authorization": "Bearer ${newToken ?? ''}",
           "Accept": "application/json",
-        },
-      );
+        });
+      }
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> jsonResponse = jsonDecode(response.body);
-        
-        // ✅ Validate structure
-        if (jsonResponse['status'] == 'success' && 
-            jsonResponse['data'] is List) {
-          return {
-            "success": true,
-            "data": jsonResponse['data'],  // Return the list directly
-          };
+
+        if (jsonResponse['status'] == 'success' && jsonResponse['data'] is List) {
+          return {"success": true, "data": jsonResponse['data']};
         }
-        
-        return {
-          "success": false,
-          "message": "Invalid response structure",
-        };
+
+        return {"success": false, "message": "Invalid response structure"};
       }
-      
-      return {
-        "success": false,
-        "message": response.body,
-      };
+
+      return {"success": false, "message": response.body};
     } catch (e) {
-      return {
-        "success": false,
-        "error": e.toString(),
-      };
+      return {"success": false, "error": e.toString()};
     }
   }
 
   // ===============================
-  // GET QUANT BY TITLE //
+  // GET QUANT BY TITLE
   // ===============================
   static Future<Map<String, dynamic>> GetQuantByTitle({
-    required String token,
     required String title,
   }) async {
     try {
-      final response = await http.get(
-        Uri.parse(
-          "$baseUrl/get-quant-title-exclusive?title=${Uri.encodeComponent(title)}",
-        ),
-        headers: {
-          "Authorization": "Bearer $token",
-          "Accept": "application/json",
-        },
+      final token = await AuthStorage.getToken();
+      final uri   = Uri.parse(
+        "$_base/get-quant-title-exclusive?title=${Uri.encodeComponent(title)}",
       );
+
+      var response = await http.get(uri, headers: {
+        "Authorization": "Bearer ${token ?? ''}",
+        "Accept": "application/json",
+      });
+
+      // Auto-refresh 401
+      if (response.statusCode == 401) {
+        final refreshed = await AuthStorage.refreshAccessToken();
+        if (!refreshed) {
+          return {"success": false, "message": "Session expired. Silakan login ulang."};
+        }
+        final newToken = await AuthStorage.getToken();
+        response = await http.get(uri, headers: {
+          "Authorization": "Bearer ${newToken ?? ''}",
+          "Accept": "application/json",
+        });
+      }
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> jsonResponse = jsonDecode(response.body);
-        
-        // ✅ Validate structure (single object)
+
         if (jsonResponse['status'] == 'success') {
-          return {
-            "success": true,
-            "data": jsonResponse['data'],  // Can be null or object
-          };
+          return {"success": true, "data": jsonResponse['data']};
         }
-        
-        return {
-          "success": false,
-          "message": "Invalid response structure",
-        };
+
+        return {"success": false, "message": "Invalid response structure"};
       }
-      
-      return {
-        "success": false,
-        "message": response.body,
-      };
+
+      return {"success": false, "message": response.body};
     } catch (e) {
-      return {
-        "success": false,
-        "error": e.toString(),
-      };
+      return {"success": false, "error": e.toString()};
     }
   }
 
   // =====================================
-  // UPLOAD QUANT (ADMIN ONLY) //
+  // UPLOAD QUANT (ADMIN ONLY)
   // =====================================
   static Future<Map<String, dynamic>> UploadQuantExclusiveData({
-    required String token,
     required String judulPair,
-    required String name,  // ✅ Added missing name field
+    required String name,
     required String linkTradingView,
     required String imageSampulPath,
     required String imageChartPath,
@@ -119,76 +116,118 @@ class Quant_Exclusive_Hook {
     required String Source,
   }) async {
     try {
+      final token = await AuthStorage.getToken();
+
       var request = http.MultipartRequest(
         "POST",
-        Uri.parse("$baseUrl/upload-quant-exclusive"),
+        Uri.parse("$_base/upload-quant-exclusive"),
       );
 
       request.headers.addAll({
-        "Authorization": "Bearer $token",
+        "Authorization": "Bearer ${token ?? ''}",
         "Accept": "application/json",
       });
 
-      // ✅ Add all required fields
-      request.fields['judul_pair'] = judulPair;
-      request.fields['Name'] = name;  // ✅ Don't forget this!
+      request.fields['judul_pair']        = judulPair;
+      request.fields['Name']              = name;
       request.fields['Link_Trading_View'] = linkTradingView;
-
-      request.fields['Judul_1'] = judul1;
-      request.fields['Deskripsi_1'] = deskripsi1;
-      request.fields['Judul_2'] = judul2;
-      request.fields['Deskripsi_2'] = deskripsi2;
-      request.fields['Judul_3'] = judul3;
-      request.fields['Deskripsi_3'] = deskripsi3;
-      request.fields['Judul_4'] = judul4;
-      request.fields['Deskripsi_4'] = deskripsi4;
-      
-      request.fields['AI_Summary'] = AI_Summary;
-      request.fields['Source'] = Source;
+      request.fields['Judul_1']           = judul1;
+      request.fields['Deskripsi_1']       = deskripsi1;
+      request.fields['Judul_2']           = judul2;
+      request.fields['Deskripsi_2']       = deskripsi2;
+      request.fields['Judul_3']           = judul3;
+      request.fields['Deskripsi_3']       = deskripsi3;
+      request.fields['Judul_4']           = judul4;
+      request.fields['Deskripsi_4']       = deskripsi4;
+      request.fields['AI_Summary']        = AI_Summary;
+      request.fields['Source']            = Source;
 
       request.files.add(
-        await http.MultipartFile.fromPath(
-          'Image_sampul',
-          imageSampulPath,
-        ),
+        await http.MultipartFile.fromPath('Image_sampul', imageSampulPath),
       );
-
       request.files.add(
-        await http.MultipartFile.fromPath(
-          'Image_chart',
-          imageChartPath,
-        ),
+        await http.MultipartFile.fromPath('Image_chart', imageChartPath),
       );
 
       final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
+      var response = await http.Response.fromStream(streamedResponse);
+
+      // Auto-refresh 401 — rebuild MultipartRequest karena tidak bisa di-replay
+      if (response.statusCode == 401) {
+        final refreshed = await AuthStorage.refreshAccessToken();
+        if (!refreshed) {
+          return {"success": false, "message": "Session expired. Silakan login ulang."};
+        }
+        final newToken = await AuthStorage.getToken();
+
+        var retryRequest = http.MultipartRequest(
+          "POST",
+          Uri.parse("$_base/upload-quant-exclusive"),
+        );
+        retryRequest.headers.addAll({
+          "Authorization": "Bearer ${newToken ?? ''}",
+          "Accept": "application/json",
+        });
+        retryRequest.fields['judul_pair']        = judulPair;
+        retryRequest.fields['Name']              = name;
+        retryRequest.fields['Link_Trading_View'] = linkTradingView;
+        retryRequest.fields['Judul_1']           = judul1;
+        retryRequest.fields['Deskripsi_1']       = deskripsi1;
+        retryRequest.fields['Judul_2']           = judul2;
+        retryRequest.fields['Deskripsi_2']       = deskripsi2;
+        retryRequest.fields['Judul_3']           = judul3;
+        retryRequest.fields['Deskripsi_3']       = deskripsi3;
+        retryRequest.fields['Judul_4']           = judul4;
+        retryRequest.fields['Deskripsi_4']       = deskripsi4;
+        retryRequest.fields['AI_Summary']        = AI_Summary;
+        retryRequest.fields['Source']            = Source;
+        retryRequest.files.add(
+          await http.MultipartFile.fromPath('Image_sampul', imageSampulPath),
+        );
+        retryRequest.files.add(
+          await http.MultipartFile.fromPath('Image_chart', imageChartPath),
+        );
+
+        final retryStreamed = await retryRequest.send();
+        response = await http.Response.fromStream(retryStreamed);
+      }
 
       return _handleResponse(response);
     } catch (e) {
-      return {
-        "success": false,
-        "error": e.toString(),
-      };
+      return {"success": false, "error": e.toString()};
     }
   }
 
   // ===============================
-  // DELETE QUANT //
+  // DELETE QUANT
   // ===============================
   static Future<Map<String, dynamic>> DeleteQuantExclusive({
-    required String token,
     required String quantId,
   }) async {
     try {
-      final response = await http.delete(
-        Uri.parse(
-          "$baseUrl/delete-quant-trade-exclusive?quant_id=$quantId",
-        ),
-        headers: {
-          "Authorization": "Bearer $token",
-          "Accept": "application/json",
-        },
+      final token = await AuthStorage.getToken();
+      final uri   = Uri.parse(
+        "$_base/delete-quant-trade-exclusive?quant_id=$quantId",
       );
+
+      var response = await http.delete(uri, headers: {
+        "Authorization": "Bearer ${token ?? ''}",
+        "Accept": "application/json",
+      });
+
+      // Auto-refresh 401
+      if (response.statusCode == 401) {
+        final refreshed = await AuthStorage.refreshAccessToken();
+        if (!refreshed) {
+          return {"success": false, "message": "Session expired. Silakan login ulang."};
+        }
+        final newToken = await AuthStorage.getToken();
+        response = await http.delete(uri, headers: {
+          "Authorization": "Bearer ${newToken ?? ''}",
+          "Accept": "application/json",
+        });
+      }
+
       return _handleResponse(response);
     } catch (e) {
       return {"success": false, "error": e.toString()};
@@ -196,68 +235,69 @@ class Quant_Exclusive_Hook {
   }
 
   // ===========================================
-  // GET QUANT WITH UPLOADER //
+  // GET QUANT WITH UPLOADER
   // ===========================================
   static Future<Map<String, dynamic>> GetQuantWithUploader() async {
     try {
-      final response = await http.get(
-        Uri.parse(
-          "$baseUrl/get-quant-trade-with-upload-exclusive",
-        ),
+      final token = await AuthStorage.getToken();
+      final uri   = Uri.parse("$_base/get-quant-trade-with-upload-exclusive");
+
+      var response = await http.get(
+        uri,
+        headers: {
+          if (token != null && token.isNotEmpty)
+            "Authorization": "Bearer $token",
+        },
       );
+
+      // Auto-refresh 401
+      if (response.statusCode == 401) {
+        final refreshed = await AuthStorage.refreshAccessToken();
+        if (!refreshed) {
+          return {"success": false, "message": "Session expired. Silakan login ulang."};
+        }
+        final newToken = await AuthStorage.getToken();
+        response = await http.get(
+          uri,
+          headers: {
+            if (newToken != null && newToken.isNotEmpty)
+              "Authorization": "Bearer $newToken",
+          },
+        );
+      }
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> jsonResponse = jsonDecode(response.body);
-        
-        // ✅ Validate structure
-        if (jsonResponse['status'] == 'success' && 
-            jsonResponse['data'] is List) {
-          return {
-            "success": true,
-            "data": jsonResponse['data'],
-          };
+
+        if (jsonResponse['status'] == 'success' && jsonResponse['data'] is List) {
+          return {"success": true, "data": jsonResponse['data']};
         }
-        
-        return {
-          "success": false,
-          "message": "Invalid response structure",
-        };
+
+        return {"success": false, "message": "Invalid response structure"};
       }
-      
-      return {
-        "success": false,
-        "message": response.body,
-      };
+
+      return {"success": false, "message": response.body};
     } catch (e) {
-      return {
-        "success": false,
-        "error": e.toString(),
-      };
+      return {"success": false, "error": e.toString()};
     }
   }
 
   // ===============================
-  // RESPONSE HANDLER //
+  // RESPONSE HANDLER
   // ===============================
   static Map<String, dynamic> _handleResponse(http.Response response) {
     if (response.statusCode == 200) {
       try {
         final Map<String, dynamic> jsonResponse = jsonDecode(response.body);
-        return {
-          "success": true,
-          "data": jsonResponse,
-        };
+        return {"success": true, "data": jsonResponse};
       } catch (e) {
-        return {
-          "success": false,
-          "message": "Failed to parse response",
-        };
+        return {"success": false, "message": "Failed to parse response"};
       }
     }
-    
+
     return {
-      "success": false,
-      "message": response.body,
+      "success":    false,
+      "message":    response.body,
       "statusCode": response.statusCode,
     };
   }

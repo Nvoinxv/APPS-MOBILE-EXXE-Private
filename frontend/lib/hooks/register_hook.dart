@@ -2,9 +2,9 @@
 // FILE: hooks/register_hook.dart
 // ============================================================
 // Alur register:
-//   STEP 1 (wajib) → POST /register        → name, email, password
-//   STEP 2 (opsional) → PUT /update-profile → description, birth_year
-//   STEP 3 (opsional) → POST /upload-profile-image → foto profile
+//   STEP 1 (wajib)    → POST /register             → name, email, password
+//   STEP 2 (opsional) → PUT  /update-profile        → description, birth_year
+//   STEP 3 (opsional) → POST /upload-profile-image  → foto profile
 //
 // Description, profile image, dan birth_year TIDAK wajib diisi.
 // Kalau user skip, langsung return hasil register saja.
@@ -13,8 +13,10 @@
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../utils/auth_storage.dart';
 
-const String _baseUrl = 'http://127.0.0.1:8080'; // Sesuaikan sama backend lu
+// Base URL — pakai TestingUrlExternal dari auth_storage.dart
+const String _baseUrl = TestingUrlExternal;
 
 // ─── Main Register Hook ───────────────────────────────────────────────────────
 // Parameter wajib   : name, email, password
@@ -39,8 +41,8 @@ Future<Map<String, dynamic>> registerHook({
   // STEP 1: Register akun (wajib)
   // ══════════════════════════════════════════════════════════════════════════
   final registerResult = await _step1Register(
-    name: name,
-    email: email,
+    name:     name,
+    email:    email,
     password: password,
   );
 
@@ -50,10 +52,23 @@ Future<Map<String, dynamic>> registerHook({
   // Kalau tidak, kita login dulu.
   final token = registerResult['access_token'] as String?;
 
+  // Simpan session ke AuthStorage kalau token tersedia
+  if (token != null && token.isNotEmpty) {
+    await AuthStorage.saveSession(
+      token:        token,
+      refreshToken: registerResult['refresh_token']?.toString() ?? '',
+      userId:       registerResult['user_id']?.toString() ?? '',
+      email:        email,
+      role:         registerResult['role']?.toString() ?? '',
+      name:         name,
+    );
+    print('[DEBUG] Session saved via AuthStorage after register');
+  }
+
   // Kalau tidak ada data opsional yang diisi, langsung selesai
   final bool hasOptionalData = _hasAnyOptionalData(
-    description: description,
-    birthYear: birthYear,
+    description:  description,
+    birthYear:    birthYear,
     profileImage: profileImage,
   );
 
@@ -65,16 +80,16 @@ Future<Map<String, dynamic>> registerHook({
   // ══════════════════════════════════════════════════════════════════════════
   // STEP 2: Update profile teks opsional (kalau ada)
   // ══════════════════════════════════════════════════════════════════════════
-  final bool hasTextData = (description != null && description.trim().isNotEmpty) ||
-      (birthYear != null && birthYear.trim().isNotEmpty);
+  final bool hasTextData =
+      (description != null && description.trim().isNotEmpty) ||
+      (birthYear   != null && birthYear.trim().isNotEmpty);
 
   if (hasTextData) {
     await _step2UpdateProfile(
-      token: token,
-      // display_name diisi dari name yang sudah dipakai di register
-      displayName: name,
+      token:       token,
+      displayName: name, // display_name diisi dari name yang sudah dipakai di register
       description: description ?? '',
-      birthYear: birthYear ?? '',
+      birthYear:   birthYear   ?? '',
     );
   }
 
@@ -83,7 +98,7 @@ Future<Map<String, dynamic>> registerHook({
   // ══════════════════════════════════════════════════════════════════════════
   if (profileImage != null) {
     await _step3UploadImage(
-      token: token,
+      token:     token,
       imageFile: profileImage,
     );
   }
@@ -102,8 +117,8 @@ Future<Map<String, dynamic>> _step1Register({
       Uri.parse('$_baseUrl/register'),
       headers: {'Content-Type': 'application/json'},
       body: json.encode({
-        'name': name,
-        'email': email,
+        'name':     name,
+        'email':    email,
         'password': password,
         // ROLE TIDAK DIKIRIM — backend auto set ke GENERAL
         // Role hanya berubah kalau user upgrade ke EXCLUSIVE (berbayar)
@@ -136,19 +151,40 @@ Future<void> _step2UpdateProfile({
   required String birthYear,
 }) async {
   try {
-    final response = await http.put(
+    // Coba dengan token yang ada dulu
+    var response = await http.put(
       Uri.parse('$_baseUrl/update-profile'),
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type':  'application/json',
         // JWT token wajib ada — backend pakai ini untuk tau siapa usernya
         'Authorization': 'Bearer $token',
       },
       body: json.encode({
         'display_name': displayName,
-        'description': description.trim().isEmpty ? null : description.trim(),
-        'birth_year': birthYear.trim().isEmpty ? null : birthYear.trim(),
+        'description':  description.trim().isEmpty ? null : description.trim(),
+        'birth_year':   birthYear.trim().isEmpty   ? null : birthYear.trim(),
       }),
     );
+
+    // Auto-refresh 401
+    if (response.statusCode == 401) {
+      final refreshed = await AuthStorage.refreshAccessToken();
+      if (refreshed) {
+        final newToken = await AuthStorage.getToken();
+        response = await http.put(
+          Uri.parse('$_baseUrl/update-profile'),
+          headers: {
+            'Content-Type':  'application/json',
+            'Authorization': 'Bearer ${newToken ?? ''}',
+          },
+          body: json.encode({
+            'display_name': displayName,
+            'description':  description.trim().isEmpty ? null : description.trim(),
+            'birth_year':   birthYear.trim().isEmpty   ? null : birthYear.trim(),
+          }),
+        );
+      }
+    }
 
     if (response.statusCode != 200) {
       // Step 2 gagal tidak fatal untuk register — cukup log saja
@@ -184,7 +220,27 @@ Future<void> _step3UploadImage({
     );
 
     final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
+    var response = await http.Response.fromStream(streamedResponse);
+
+    // Auto-refresh 401 — rebuild MultipartRequest karena tidak bisa di-replay
+    if (response.statusCode == 401) {
+      final refreshed = await AuthStorage.refreshAccessToken();
+      if (refreshed) {
+        final newToken = await AuthStorage.getToken();
+
+        final retryRequest = http.MultipartRequest(
+          'POST',
+          Uri.parse('$_baseUrl/upload-profile-image'),
+        );
+        retryRequest.headers['Authorization'] = 'Bearer ${newToken ?? ''}';
+        retryRequest.files.add(
+          await http.MultipartFile.fromPath('file', imageFile.path),
+        );
+
+        final retryStreamed = await retryRequest.send();
+        response = await http.Response.fromStream(retryStreamed);
+      }
+    }
 
     if (response.statusCode != 200) {
       final errorData = json.decode(response.body);
@@ -203,8 +259,8 @@ bool _hasAnyOptionalData({
   String? birthYear,
   File? profileImage,
 }) {
-  final hasDesc = description != null && description.trim().isNotEmpty;
-  final hasBirth = birthYear != null && birthYear.trim().isNotEmpty;
+  final hasDesc  = description  != null && description.trim().isNotEmpty;
+  final hasBirth = birthYear    != null && birthYear.trim().isNotEmpty;
   final hasImage = profileImage != null;
   return hasDesc || hasBirth || hasImage;
 }
