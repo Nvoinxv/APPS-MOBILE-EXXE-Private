@@ -44,8 +44,7 @@ class _ResearchCoinSectionState extends State<ResearchCoinSection> {
   Future<void> _loadData() async {
     setState(() => isLoading = true);
 
-    final result = await Research_Coin_Hook.GetAllResearchCoin(
-        token: widget.token);
+    final result = await Research_Coin_Hook.GetAllResearchCoin();
 
     if (result['success'] == true) {
       setState(() {
@@ -567,7 +566,6 @@ class _ResearchCoinCardState extends State<_ResearchCoinCard> {
 
     if (confirmed == true && mounted) {
       final result = await Research_Coin_Hook.DeleteResearchCoin(
-        token:      widget.token,
         researchId: mongoId,
       );
 

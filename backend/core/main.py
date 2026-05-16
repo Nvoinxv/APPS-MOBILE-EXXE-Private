@@ -19,11 +19,6 @@ from controller.execute_controller import router_execute_controller
 # TradingView Editor (NEW)
 from controller.tradingviewindicator_controller import router_tradingview
 
-# Bagian import router dari exxe quant core
-from ExxeQuantCore.router.base_signal_router import base_signal_router
-from ExxeQuantCore.router.alert_disparcher_router import alert_router
-from ExxeQuantCore.router.classifier_router import classifier_router
-
 # Bagian import AI
 from AI.AI_Router_news import generate_ai_news_route
 
@@ -87,11 +82,6 @@ app.include_router(router_execute_controller, tags=["Python Terminal"])
 
 # TradingView Editor (NEW)
 app.include_router(router_tradingview)
-
-# ExxeQuantCore
-app.include_router(base_signal_router, prefix="/api/v1/signal", tags=["Signal"])
-app.include_router(alert_router)
-app.include_router(classifier_router)
 
 # AI
 app.include_router(generate_ai_news_route)  # prefix: /ai/news

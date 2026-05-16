@@ -44,8 +44,7 @@ class _QuantInvestingSectionState extends State<QuantInvestingSection> {
 
   Future<void> _loadData() async {
     setState(() => isLoading = true);
-    final result = await Quant_Exclusive_Hook.GetAllQuantExclusive(
-        token: widget.token);
+    final result = await Quant_Exclusive_Hook.GetAllQuantExclusive();
     if (result['success'] == true) {
       setState(() {
         quantCards     = List<Map<String, dynamic>>.from(result['data']);

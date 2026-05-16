@@ -146,7 +146,7 @@ class _NewsSectionState extends State<NewsSection> {
 
   Future<void> _loadDbNews() async {
     try {
-      final result = await News_Exclusive_Hook.GetAllNewsExclusive(token: widget.token);
+      final result = await News_Exclusive_Hook.GetAllNewsExclusive();
       if (result['success'] == true) {
         _dbNews = (result['data'] as List)
             .map((e) => Map<String, dynamic>.from(e as Map))
