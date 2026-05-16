@@ -103,7 +103,6 @@ class _QuantInvestingSectionState extends State<QuantInvestingSection> {
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: SectionLockBanner(
                     sectionName: 'EXXE Quant Investing',
-                    token: widget.token,
                   ),
                 ),
               ),

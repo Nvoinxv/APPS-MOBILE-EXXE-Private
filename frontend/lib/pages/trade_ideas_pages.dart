@@ -256,6 +256,7 @@ class _TradeIdeasSectionState extends State<TradeIdeasSection> {
                 _buildSearchBar(),
                 const SizedBox(width: 16),
                 UploadGuard(
+                  token: widget.token,
                   child: MouseRegion(
                     cursor: SystemMouseCursors.click,
                     child: ElevatedButton.icon(

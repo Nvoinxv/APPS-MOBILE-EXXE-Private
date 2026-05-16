@@ -39,7 +39,6 @@ class _QuantInvestingScreenState extends State<QuantInvestingScreen> {
     setState(() => isLoading = true);
     
     final result = await Quant_Exclusive_Hook.GetAllQuantExclusive(
-      token: widget.token,
     );
     
     print("📡 API Response: $result");

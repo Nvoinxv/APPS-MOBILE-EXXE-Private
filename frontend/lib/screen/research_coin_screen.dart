@@ -34,7 +34,6 @@ class _ResearchCoinScreenState extends State<ResearchCoinScreen> {
     
     try {
       final result = await Research_Coin_Hook.GetAllResearchCoin(
-        token: widget.token,
       );
       
       print("📡 Research Coin API Response: $result");
