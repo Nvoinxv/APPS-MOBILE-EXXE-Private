@@ -3,9 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import '../utils/auth_storage.dart';
 
-// Base URL — pakai TestingUrlExternal dari auth_storage.dart
-const String _base = TestingUrlExternal;
-
 class Research_Coin_Hook {
 
   // ===============================
@@ -14,7 +11,7 @@ class Research_Coin_Hook {
   static Future<Map<String, dynamic>> GetAllResearchCoin() async {
     try {
       final token = await AuthStorage.getToken();
-      final uri   = Uri.parse("$_base/get-research-coin-exclusive");
+      final uri   = Uri.parse("${AuthStorage.activeBaseUrl}/get-research-coin-exclusive");
 
       var response = await http.get(uri, headers: {
         "Authorization": "Bearer ${token ?? ''}",
@@ -55,7 +52,7 @@ class Research_Coin_Hook {
     try {
       final token = await AuthStorage.getToken();
       final uri   = Uri.parse(
-        "$_base/get-title-research-coin-exclusive?title=$title",
+        "${AuthStorage.activeBaseUrl}/get-title-research-coin-exclusive?title=$title",
       );
 
       var response = await http.get(uri, headers: {
@@ -107,7 +104,7 @@ class Research_Coin_Hook {
       Future<http.MultipartRequest> buildRequest(String? t) async {
         final request = http.MultipartRequest(
           "POST",
-          Uri.parse("$_base/upload-research-coin-exclusive"),
+          Uri.parse("${AuthStorage.activeBaseUrl}/upload-research-coin-exclusive"),
         );
         request.headers.addAll({
           "Authorization": "Bearer ${t ?? ''}",
@@ -159,7 +156,7 @@ class Research_Coin_Hook {
     try {
       final token = await AuthStorage.getToken();
       final uri   = Uri.parse(
-        "$_base/delete-research-coin-exclusive?research_id=$researchId",
+        "${AuthStorage.activeBaseUrl}/delete-research-coin-exclusive?research_id=$researchId",
       );
 
       var response = await http.delete(uri, headers: {
@@ -210,7 +207,7 @@ class Research_Coin_Hook {
   static Future<Map<String, dynamic>> GetResearchCoinWithUploader() async {
     try {
       final token = await AuthStorage.getToken();
-      final uri   = Uri.parse("$_base/get-research-coin-with-upload-exclusive");
+      final uri   = Uri.parse("${AuthStorage.activeBaseUrl}/get-research-coin-with-upload-exclusive");
 
       var response = await http.get(uri, headers: {
         "Authorization": "Bearer ${token ?? ''}",

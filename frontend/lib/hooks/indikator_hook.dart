@@ -1,13 +1,12 @@
 // lib/hooks/indikator_hook.dart
 import 'dart:convert';
+import 'package:frontend/utils/constants.dart';
 import 'package:http/http.dart' as http;
 import '../models/script_file.dart';
 import '../utils/auth_storage.dart';
 import '../postingan/postingan_tradingview.dart';
 
 class Indicator_Exclusive_Hook {
-  // ─── base URL pakai TestingUrlExternal dari auth_storage ────────────────
-  static const String _base = TestingUrlExternal;
 
   // ===============================
   // GET ALL INDICATORS
@@ -16,7 +15,7 @@ class Indicator_Exclusive_Hook {
     try {
       final token = await AuthStorage.getToken();
       final response = await http.get(
-        Uri.parse("$_base/tradingview/indicators"),
+        Uri.parse("${AuthStorage.activeBaseUrl}/tradingview/indicators"),
         headers: {
           "Authorization": "Bearer ${token ?? ''}",
           "Accept": "application/json",
@@ -67,7 +66,7 @@ class Indicator_Exclusive_Hook {
   }) async {
     try {
       final token = await AuthStorage.getToken();
-      final uri   = Uri.parse("$_base/tradingview/indicators/$indicatorId");
+      final uri   = Uri.parse("${AuthStorage.activeBaseUrl}/tradingview/indicators/$indicatorId");
 
       var response = await http.delete(
         uri,

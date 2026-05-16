@@ -8,41 +8,6 @@
 //   - Zoom state (lokal — tidak perlu controller)
 //   - Theme/file-change listeners
 //
-// FIX v_click_natural:
-//  - [FIXED] IntrinsicWidth tanpa ConstrainedBox → TextField hanya selebar
-//            konten teks. Klik di area kosong sebelah kanan teks = klik di
-//            luar TextField → cursor tidak muncul, terasa "kaku".
-//            Fix: LayoutBuilder + ConstrainedBox(minWidth: viewportWidth)
-//            supaya editor minimal selalu selebar area visible. Horizontal
-//            scroll tetap bekerja karena IntrinsicWidth masih ada di dalam.
-//
-// FIX v_layout_safe (sebelumnya):
-//  - [FIXED] FocusNode() dibuat di dalam build() → dipindah ke State field
-//  - [FIXED] _ctrl.updateSizing() dipanggil di dalam builder callback
-//            → dipindah ke didUpdateWidget
-//
-// FIX v_overflow:
-//  - [FIXED] Expanded(_buildEditorBody) → Flexible(fit:tight) +
-//            ConstrainedBox(minHeight:0).
-//            Root cause: saat FindReplacePanel (≈88–100px) + EditorStatusBar
-//            (22px) melebihi tinggi yang tersedia untuk CodeEditorWidget,
-//            body mendapat tinggi negatif dari Expanded → RenderFlex
-//            overflow "88 pixels on the bottom".
-//            Flexible(fit:tight) berperilaku sama seperti Expanded (mengisi
-//            sisa ruang) TAPI memperbolehkan body menyusut sampai 0 lewat
-//            ConstrainedBox(minHeight:0) tanpa menyebabkan assert/overflow.
-//
-// FIX v_status_bar_guard:
-//  - [FIXED] Column overflow 8.8px (h=13.2px) di line 186.
-//            Root cause: EditorStatusBar height: 22px hardcoded. Saat
-//            available height < 22px, Flexible(editor body) menyusut ke 0
-//            tapi status bar masih minta 22px → overflow 8.8px persis.
-//            Flexible+ConstrainedBox(minH:0) menangani body, tapi tidak
-//            menangani status bar.
-//            Fix: wrap Column dalam LayoutBuilder, guard jika
-//            constraints.maxHeight < _kStatusBarH (22px) → return
-//            ColoredBox(background). Pattern identik dengan semua guard
-//            sebelumnya di file lain.
 // =============================================================================
 
 import 'package:flutter/material.dart';

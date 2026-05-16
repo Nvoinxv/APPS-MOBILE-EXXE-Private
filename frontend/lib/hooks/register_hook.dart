@@ -15,9 +15,6 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../utils/auth_storage.dart';
 
-// Base URL — pakai TestingUrlExternal dari auth_storage.dart
-const String _baseUrl = TestingUrlExternal;
-
 // ─── Main Register Hook ───────────────────────────────────────────────────────
 // Parameter wajib   : name, email, password
 // Parameter opsional: description, birthYear, profileImage
@@ -114,7 +111,7 @@ Future<Map<String, dynamic>> _step1Register({
 }) async {
   try {
     final response = await http.post(
-      Uri.parse('$_baseUrl/register'),
+      Uri.parse('${AuthStorage.activeBaseUrl}/register'),
       headers: {'Content-Type': 'application/json'},
       body: json.encode({
         'name':     name,
@@ -153,7 +150,7 @@ Future<void> _step2UpdateProfile({
   try {
     // Coba dengan token yang ada dulu
     var response = await http.put(
-      Uri.parse('$_baseUrl/update-profile'),
+      Uri.parse('${AuthStorage.activeBaseUrl}/update-profile'),
       headers: {
         'Content-Type':  'application/json',
         // JWT token wajib ada — backend pakai ini untuk tau siapa usernya
@@ -172,7 +169,7 @@ Future<void> _step2UpdateProfile({
       if (refreshed) {
         final newToken = await AuthStorage.getToken();
         response = await http.put(
-          Uri.parse('$_baseUrl/update-profile'),
+          Uri.parse('${AuthStorage.activeBaseUrl}/update-profile'),
           headers: {
             'Content-Type':  'application/json',
             'Authorization': 'Bearer ${newToken ?? ''}',
@@ -208,7 +205,7 @@ Future<void> _step3UploadImage({
   try {
     final request = http.MultipartRequest(
       'POST',
-      Uri.parse('$_baseUrl/upload-profile-image'),
+      Uri.parse('${AuthStorage.activeBaseUrl}/upload-profile-image'),
     );
 
     request.headers['Authorization'] = 'Bearer $token';
@@ -230,7 +227,7 @@ Future<void> _step3UploadImage({
 
         final retryRequest = http.MultipartRequest(
           'POST',
-          Uri.parse('$_baseUrl/upload-profile-image'),
+          Uri.parse('${AuthStorage.activeBaseUrl}/upload-profile-image'),
         );
         retryRequest.headers['Authorization'] = 'Bearer ${newToken ?? ''}';
         retryRequest.files.add(

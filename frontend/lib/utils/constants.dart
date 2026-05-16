@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../hooks/execute_hook.dart';
+import '../utils/auth_storage.dart';
 
 /// Konstanta warna untuk tema dark futuristic
 class AppColors {
@@ -389,16 +390,14 @@ class ShadowHelper {
 }
 
 /// Konstanta untuk API endpoints
+// URL tidak lagi di-define di sini — semua dikelola terpusat di auth_storage.dart
+// Cukup ganti AppMode._mode di auth_storage.dart untuk switch maintenance/production
 class ApiConstants {
   ApiConstants._();
 
-  // Ganti dengan IP/domain backend lo
-  // static const String baseUrl = 'http://10.0.2.2:8080'; // emulator Android
-  // Ngrok URL for external testing //
-  static const String TestingUrlExternal = "https://disdain-decathlon-probe.ngrok-free.dev";
-  static const String baseUrl = 'http://localhost:8080'; // web/desktop
-  // static const String baseUrl = 'https://api.exxelab.com'; // production
+  // Getter dinamis — ikut URL aktif dari AuthStorage (mode + fallback)
+  static String get baseUrl => AuthStorage.activeBaseUrl;
 
-  static const String execute = '$baseUrl/execute';
-  static const String health  = '$baseUrl/health';
+  static String get execute => '${AuthStorage.activeBaseUrl}/execute';
+  static String get health  => '${AuthStorage.activeBaseUrl}/health';
 }

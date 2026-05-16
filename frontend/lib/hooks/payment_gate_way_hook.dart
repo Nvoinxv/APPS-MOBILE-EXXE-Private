@@ -2,9 +2,6 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../utils/auth_storage.dart';
 
-// Base URL — pakai TestingUrlExternal dari auth_storage.dart
-const String _base = TestingUrlExternal;
-
 class Payment_Hook {
 
   // ======================================
@@ -22,7 +19,7 @@ class Payment_Hook {
 
       // user_wallet → query param
       // plan_type   → request body (embed: true)
-      final uri = Uri.parse("$_base/checkout").replace(
+      final uri = Uri.parse("${AuthStorage.activeBaseUrl}/checkout").replace(
         queryParameters: {"user_wallet": userWallet},
       );
 
@@ -99,7 +96,7 @@ class Payment_Hook {
   }) async {
     try {
       final token = await AuthStorage.getToken();
-      final uri   = Uri.parse("$_base/status/$orderId");
+      final uri   = Uri.parse("${AuthStorage.activeBaseUrl}/status/$orderId");
 
       var response = await http.get(
         uri,

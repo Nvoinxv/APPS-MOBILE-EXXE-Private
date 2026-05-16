@@ -96,7 +96,7 @@ class Trade_Ideas_Hook {
       final token = await AuthStorage.getToken();
 
       final response = await http.post(
-        Uri.parse('$TestingUrlExternal/trade-ideas-exclusive'),
+        Uri.parse('${AuthStorage.activeBaseUrl}/trade-ideas-exclusive'),
         headers: {
           if (token != null) 'Authorization': 'Bearer $token',
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -120,7 +120,7 @@ class Trade_Ideas_Hook {
         if (refreshed) {
           final newToken = await AuthStorage.getToken();
           final retryResponse = await http.post(
-            Uri.parse('$TestingUrlExternal/trade-ideas-exclusive'),
+            Uri.parse('${AuthStorage.activeBaseUrl}/trade-ideas-exclusive'),
             headers: {
               if (newToken != null) 'Authorization': 'Bearer $newToken',
               'Content-Type': 'application/x-www-form-urlencoded',

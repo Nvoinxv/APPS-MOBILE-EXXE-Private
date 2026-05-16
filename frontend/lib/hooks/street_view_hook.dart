@@ -97,7 +97,7 @@ class Street_View_Hook {
       // Authorization header otomatis sebelum send
       final request = http.MultipartRequest(
         "POST",
-        Uri.parse("$kBaseUrl/upload-street-view-exclusive"),
+        Uri.parse("${AuthStorage.activeBaseUrl}/upload-street-view-exclusive"),
       );
 
       // FORM DATA TEXT //

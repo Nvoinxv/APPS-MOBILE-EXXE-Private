@@ -3,11 +3,33 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-// Local Testing //
-const String kBaseUrl = 'http://localhost:8080';
+// ============================================================
+// MODE SWITCHER — HANYA UBAH INI
+// ============================================================
+// AppMode.maintenance → pakai URL list maintenance (localhost/ngrok)
+// AppMode.production  → pakai URL list production (server deploy)
+//
+// Cukup ganti satu baris di bawah, semua method ikut otomatis.
+// ============================================================
+enum AppMode { maintenance, production }
 
-// Ngrok or Any External Testing URL //
-const String TestingUrlExternal = "https://disdain-decathlon-probe.ngrok-free.app";
+const AppMode _mode = AppMode.maintenance; // ← GANTI DI SINI DOANG
+
+// ============================================================
+// URL CONFIG PER MODE — TestingUrlExternal
+// Tambah/hapus URL di sini, tidak perlu ubah logik lain.
+// Urutan = prioritas (index 0 dicoba duluan, berikutnya fallback).
+// ============================================================
+const Map<AppMode, List<String>> TestingUrlExternal = {
+  AppMode.maintenance: [
+    'http://localhost:8080',                           // Local dev utama
+    'https://disdain-decathlon-probe.ngrok-free.app', // Ngrok fallback
+  ],
+  AppMode.production: [
+    'https://api.yourproduction.com',                 // Production utama
+    // 'https://api-backup.yourproduction.com',       // Backup — uncomment kalau ada
+  ],
+};
 
 class AuthStorage {
   static const _keyToken        = 'access_token';
@@ -20,19 +42,90 @@ class AuthStorage {
   static VoidCallback? onForceLogout;
   static bool _isRefreshing = false;
 
-  // ── FIX: helper untuk baca SharedPreferences value dengan aman ───────────
-  // Root cause error: backend bisa return user_id sebagai int (123) bukan
-  // string ("123"). Kalau langsung prefs.getString(), Dart throw cast error
-  // karena value tersimpan sebagai int di SharedPreferences internal store.
-  //
-  // Solusi: pakai prefs.get() → Object? dulu, baru toString() kalau bukan String.
+  // URL aktif di-cache supaya tidak loop setiap request.
+  // Di-reset kalau koneksi gagal atau saat logout.
+  static String? _activeBaseUrl;
+
+  // Getter publik — untuk hook yang butuh build URI multipart secara manual
+  // Fallback ke index 0 kalau belum ada request sebelumnya
+  static String get activeBaseUrl =>
+      _activeBaseUrl ?? TestingUrlExternal[_mode]!.first;
+
+  // ── Helper baca SharedPreferences dengan aman ────────────────────────────
+  // Root cause: backend bisa return user_id sebagai int (123) bukan string.
+  // prefs.getString() throw cast error. Solusi: pakai prefs.get() → toString().
   static String? _safeGetString(SharedPreferences prefs, String key) {
     final raw = prefs.get(key);
     if (raw == null) return null;
     if (raw is String) return raw;
-    return raw.toString(); // handle int, bool, double yang nyasar
+    return raw.toString();
   }
 
+  // ============================================================
+  // FALLBACK CORE
+  // Coba URL satu per satu sesuai mode aktif (_mode).
+  // Kalau _activeBaseUrl sudah ada, langsung pakai (skip loop).
+  // Kalau URL aktif mati, reset dan fallback ke URL berikutnya.
+  // ============================================================
+  static Future<http.Response> _tryUrls(
+    Future<http.Response> Function(String baseUrl) build,
+  ) async {
+    final urls = TestingUrlExternal[_mode]!;
+
+    if (_activeBaseUrl != null) {
+      try {
+        return await build(_activeBaseUrl!);
+      } catch (_) {
+        _activeBaseUrl = null;
+      }
+    }
+
+    Exception? last;
+    for (final url in urls) {
+      try {
+        final res  = await build(url);
+        _activeBaseUrl = url;
+        return res;
+      } catch (e) {
+        last = e is Exception ? e : Exception(e.toString());
+      }
+    }
+    throw last ?? Exception('[$_mode] Semua URL tidak dapat dicapai: $urls');
+  }
+
+  // Versi multipart untuk file upload
+  static Future<http.StreamedResponse> _tryUrlsMultipart(
+    http.MultipartRequest Function(String baseUrl) build,
+  ) async {
+    final urls        = TestingUrlExternal[_mode]!;
+    final authHeaders = await _multipartHeaders();
+
+    if (_activeBaseUrl != null) {
+      try {
+        final req = build(_activeBaseUrl!);
+        req.headers.addAll(authHeaders);
+        return await req.send();
+      } catch (_) {
+        _activeBaseUrl = null;
+      }
+    }
+
+    Exception? last;
+    for (final url in urls) {
+      try {
+        final req = build(url);
+        req.headers.addAll(authHeaders);
+        final res  = await req.send();
+        _activeBaseUrl = url;
+        return res;
+      } catch (e) {
+        last = e is Exception ? e : Exception(e.toString());
+      }
+    }
+    throw last ?? Exception('[$_mode] Semua URL tidak dapat dicapai: $urls');
+  }
+
+  // ── Session management ───────────────────────────────────────────────────
   static Future<void> saveSession({
     required String token,
     required String refreshToken,
@@ -44,7 +137,7 @@ class AuthStorage {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyToken,        token);
     await prefs.setString(_keyRefreshToken, refreshToken);
-    await prefs.setString(_keyUserId,       userId.toString()); // FIX: force toString
+    await prefs.setString(_keyUserId,       userId.toString());
     await prefs.setString(_keyUserEmail,    email);
     await prefs.setString(_keyUserRole,     role);
     await prefs.setString(_keyUserName,     name);
@@ -62,8 +155,6 @@ class AuthStorage {
 
   static Future<Map<String, String?>> getUserData() async {
     final prefs = await SharedPreferences.getInstance();
-    // FIX: pakai _safeGetString di semua key — terutama user_id yang sering
-    // tersimpan sebagai int kalau backend return JSON number
     return {
       'token':   _safeGetString(prefs, _keyToken),
       'user_id': _safeGetString(prefs, _keyUserId),
@@ -81,6 +172,7 @@ class AuthStorage {
     await prefs.remove(_keyUserEmail);
     await prefs.remove(_keyUserRole);
     await prefs.remove(_keyUserName);
+    _activeBaseUrl = null; // Reset cache URL saat logout
   }
 
   static Future<bool> isLoggedIn() async {
@@ -99,11 +191,14 @@ class AuthStorage {
         return false;
       }
 
-      final response = await http.post(
-        Uri.parse('$kBaseUrl/refresh'),
-        headers: {'Content-Type': 'application/json'},
-        body:    jsonEncode({'refresh_token': refreshToken}),
-      ).timeout(const Duration(seconds: 10));
+      // Refresh token juga ikut fallback sesuai mode
+      final response = await _tryUrls(
+        (baseUrl) => http.post(
+          Uri.parse('$baseUrl/refresh'),
+          headers: {'Content-Type': 'application/json'},
+          body:    jsonEncode({'refresh_token': refreshToken}),
+        ).timeout(const Duration(seconds: 10)),
+      );
 
       if (response.statusCode == 200) {
         final data  = jsonDecode(response.body) as Map<String, dynamic>;
@@ -115,7 +210,6 @@ class AuthStorage {
 
       await _forceLogout();
       return false;
-
     } catch (_) {
       await _forceLogout();
       return false;
@@ -129,10 +223,8 @@ class AuthStorage {
     onForceLogout?.call();
   }
 
-  // ── Base headers builder ─────────────────────────────────────────────────
-  static Future<Map<String, String>> _headers([
-    Map<String, String>? extra,
-  ]) async {
+  // ── Base headers ─────────────────────────────────────────────────────────
+  static Future<Map<String, String>> _headers([Map<String, String>? extra]) async {
     final token = await getToken();
     return {
       'Content-Type': 'application/json',
@@ -141,10 +233,8 @@ class AuthStorage {
     };
   }
 
-  // ── Headers khusus multipart (tanpa Content-Type, biar http set boundary) ─
-  static Future<Map<String, String>> _multipartHeaders([
-    Map<String, String>? extra,
-  ]) async {
+  // Headers multipart (tanpa Content-Type, biar http set boundary otomatis)
+  static Future<Map<String, String>> _multipartHeaders([Map<String, String>? extra]) async {
     final token = await getToken();
     return {
       'Accept': 'application/json',
@@ -159,12 +249,21 @@ class AuthStorage {
     Map<String, String>? headers,
     Map<String, String>? queryParams,
   }) async {
-    final uri = Uri.parse('$kBaseUrl$path').replace(queryParameters: queryParams);
-    var response = await http.get(uri, headers: await _headers(headers));
+    final h = await _headers(headers);
+
+    var response = await _tryUrls((baseUrl) {
+      final uri = Uri.parse('$baseUrl$path').replace(queryParameters: queryParams);
+      return http.get(uri, headers: h);
+    });
+
     if (response.statusCode == 401) {
       final refreshed = await refreshAccessToken();
       if (refreshed) {
-        response = await http.get(uri, headers: await _headers(headers));
+        final newH = await _headers(headers);
+        response = await _tryUrls((baseUrl) {
+          final uri = Uri.parse('$baseUrl$path').replace(queryParameters: queryParams);
+          return http.get(uri, headers: newH);
+        });
       }
     }
     return response;
@@ -176,20 +275,20 @@ class AuthStorage {
     Map<String, dynamic>? body,
     Map<String, String>? headers,
   }) async {
-    final uri = Uri.parse('$kBaseUrl$path');
-    var response = await http.post(
-      uri,
-      headers: await _headers(headers),
-      body:    body != null ? jsonEncode(body) : null,
-    );
+    final h   = await _headers(headers);
+    final enc = body != null ? jsonEncode(body) : null;
+
+    var response = await _tryUrls((baseUrl) {
+      return http.post(Uri.parse('$baseUrl$path'), headers: h, body: enc);
+    });
+
     if (response.statusCode == 401) {
       final refreshed = await refreshAccessToken();
       if (refreshed) {
-        response = await http.post(
-          uri,
-          headers: await _headers(headers),
-          body:    body != null ? jsonEncode(body) : null,
-        );
+        final newH = await _headers(headers);
+        response = await _tryUrls((baseUrl) {
+          return http.post(Uri.parse('$baseUrl$path'), headers: newH, body: enc);
+        });
       }
     }
     return response;
@@ -201,50 +300,54 @@ class AuthStorage {
     Map<String, dynamic>? body,
     Map<String, String>? headers,
   }) async {
-    final uri = Uri.parse('$kBaseUrl$path');
-    var response = await http.patch(
-      uri,
-      headers: await _headers(headers),
-      body:    body != null ? jsonEncode(body) : null,
-    );
+    final h   = await _headers(headers);
+    final enc = body != null ? jsonEncode(body) : null;
+
+    var response = await _tryUrls((baseUrl) {
+      return http.patch(Uri.parse('$baseUrl$path'), headers: h, body: enc);
+    });
+
     if (response.statusCode == 401) {
       final refreshed = await refreshAccessToken();
       if (refreshed) {
-        response = await http.patch(
-          uri,
-          headers: await _headers(headers),
-          body:    body != null ? jsonEncode(body) : null,
-        );
+        final newH = await _headers(headers);
+        response = await _tryUrls((baseUrl) {
+          return http.patch(Uri.parse('$baseUrl$path'), headers: newH, body: enc);
+        });
       }
     }
     return response;
   }
 
   // ── DELETE ───────────────────────────────────────────────────────────────
-  // Dipakai untuk endpoint yang butuh auth token + query params (misal delete
-  // by ID). Auto-retry sekali kalau dapat 401 + refresh token masih valid.
   static Future<http.Response> delete(
     String path, {
     Map<String, String>? headers,
     Map<String, String>? queryParams,
   }) async {
-    final uri = Uri.parse('$kBaseUrl$path').replace(queryParameters: queryParams);
-    var response = await http.delete(uri, headers: await _headers(headers));
+    final h = await _headers(headers);
+
+    var response = await _tryUrls((baseUrl) {
+      final uri = Uri.parse('$baseUrl$path').replace(queryParameters: queryParams);
+      return http.delete(uri, headers: h);
+    });
+
     if (response.statusCode == 401) {
       final refreshed = await refreshAccessToken();
       if (refreshed) {
-        response = await http.delete(uri, headers: await _headers(headers));
+        final newH = await _headers(headers);
+        response = await _tryUrls((baseUrl) {
+          final uri = Uri.parse('$baseUrl$path').replace(queryParameters: queryParams);
+          return http.delete(uri, headers: newH);
+        });
       }
     }
     return response;
   }
 
-  // ── MULTIPART (file upload) ──────────────────────────────────────────────
-  // Kirim http.MultipartRequest yang sudah disiapkan caller, lalu inject
-  // Authorization header dari session. Auto-retry sekali kalau 401.
-  //
-  // Cara pakai:
-  //   final req = http.MultipartRequest('POST', Uri.parse('$kBaseUrl/path'));
+  // ── MULTIPART (file upload) — backward compat ────────────────────────────
+  // Cara pakai lama tetap jalan:
+  //   final req = http.MultipartRequest('POST', Uri.parse('${TestingUrlExternal[_mode]!.first}/path'));
   //   req.fields['key'] = 'value';
   //   req.files.add(await http.MultipartFile.fromPath('field', file.path));
   //   final response = await AuthStorage.sendMultipart(req);
@@ -252,23 +355,35 @@ class AuthStorage {
     http.MultipartRequest request, {
     Map<String, String>? extraHeaders,
   }) async {
-    // Inject auth headers ke request yang sudah disiapkan caller
     final authHeaders = await _multipartHeaders(extraHeaders);
     request.headers.addAll(authHeaders);
 
     var streamedResponse = await request.send();
 
-    // Kalau 401, refresh token lalu kirim ulang request yang sama
     if (streamedResponse.statusCode == 401) {
       final refreshed = await refreshAccessToken();
       if (refreshed) {
-        // MultipartRequest tidak bisa di-send ulang, harus buat instance baru
-        // tapi field & files sudah di-clone oleh caller — jadi ini handled
-        // di level hook dengan memanggil ulang fungsi upload-nya.
-        // Di sini kita cukup return response 401 biar caller bisa handle.
+        // MultipartRequest tidak bisa di-send ulang setelah dikirim.
+        // Return 401 ke caller agar hook memanggil ulang fungsi upload-nya.
       }
     }
-
     return streamedResponse;
+  }
+
+  // ── MULTIPART dengan builder — RECOMMENDED untuk hook baru ──────────────
+  // Pakai ini agar upload bisa auto-fallback ke URL lain kalau koneksi putus.
+  //
+  // Cara pakai:
+  //   final streamed = await AuthStorage.sendMultipartWithFallback((baseUrl) {
+  //     final req = http.MultipartRequest('POST', Uri.parse('$baseUrl/upload-xxx'));
+  //     req.fields['key'] = 'value';
+  //     req.files.add(await http.MultipartFile.fromPath('file', path));
+  //     return req;
+  //   });
+  //   final response = await http.Response.fromStream(streamed);
+  static Future<http.StreamedResponse> sendMultipartWithFallback(
+    http.MultipartRequest Function(String baseUrl) requestBuilder,
+  ) async {
+    return _tryUrlsMultipart(requestBuilder);
   }
 }

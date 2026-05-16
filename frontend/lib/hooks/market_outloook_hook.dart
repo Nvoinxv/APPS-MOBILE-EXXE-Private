@@ -1,40 +1,37 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:http/http.dart' as http;
+import '../utils/auth_storage.dart';
 
 class Market_Outlook_Hook {
-  static const String baseUrl = "http://127.0.0.1:8080";
 
+  // ===============================
+  // 1. GET ALL MARKET OUTLOOK
+  // ===============================
   static Future<Map<String, dynamic>> getAllMarketOutlook({
     required String token,
   }) async {
     try {
-      final response = await http.get(
-        Uri.parse("$baseUrl/market-outlook-exclusive"),
-        headers: {
-          "Authorization": "Bearer $token",
-          "Accept": "application/json",
-        },
+      final response = await AuthStorage.get(
+        "/market-outlook-exclusive",
       );
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> jsonResponse = jsonDecode(response.body);
-        
-        // ✅ Validate structure
-        if (jsonResponse['status'] == 'success' && 
+
+        if (jsonResponse['status'] == 'success' &&
             jsonResponse['data'] is List) {
           return {
             "success": true,
-            "data": jsonResponse['data'],  // Return the list directly
+            "data": jsonResponse['data'],
           };
         }
-        
+
         return {
           "success": false,
           "message": "Invalid response structure",
         };
       }
-      
+
       return {
         "success": false,
         "message": "Error ${response.statusCode}: ${response.body}",
@@ -48,41 +45,34 @@ class Market_Outlook_Hook {
   }
 
   // ===============================
-  // 2. GET BY TITLE (REQUIRES AUTH)
-  // ✅ FIXED: Add token parameter and proper validation
+  // 2. GET BY TITLE
   // ===============================
   static Future<Map<String, dynamic>> getByTitle({
     required String token,
     required String title,
   }) async {
     try {
-      final response = await http.get(
-        Uri.parse(
-          "$baseUrl/market-outlook-exclusive/title?title=${Uri.encodeComponent(title)}"
-        ),
-        headers: {
-          "Authorization": "Bearer $token",
-          "Accept": "application/json",
-        },
+      final response = await AuthStorage.get(
+        "/market-outlook-exclusive/title",
+        queryParams: {"title": title},
       );
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> jsonResponse = jsonDecode(response.body);
-        
-        // ✅ Validate structure (single object or null)
+
         if (jsonResponse['status'] == 'success') {
           return {
             "success": true,
-            "data": jsonResponse['data'],  // Can be null or object
+            "data": jsonResponse['data'],
           };
         }
-        
+
         return {
           "success": false,
           "message": "Invalid response structure",
         };
       }
-      
+
       return {
         "success": false,
         "message": "Error ${response.statusCode}: ${response.body}",
@@ -97,12 +87,11 @@ class Market_Outlook_Hook {
 
   // ===============================
   // 3. UPLOAD (ADMIN ONLY)
-  // ✅ FIXED: Better error handling
   // ===============================
   static Future<Map<String, dynamic>> uploadMarketOutlook({
     required String token,
     required String title,
-    required String date, // Format: YYYY-MM-DD
+    required String date,
     required String isi1,
     required String isi2,
     required String isi3,
@@ -114,42 +103,27 @@ class Market_Outlook_Hook {
     required String source,
   }) async {
     try {
-      var request = http.MultipartRequest(
+      final request = http.MultipartRequest(
         "POST",
-        Uri.parse("$baseUrl/market-outlook-exclusive"),
+        Uri.parse("${AuthStorage.activeBaseUrl}/market-outlook-exclusive"),
       );
 
-      // Header Authorization
-      request.headers.addAll({
-        "Authorization": "Bearer $token",
-        "Accept": "application/json",
-      });
-
-      // Form Fields
-      request.fields['title'] = title;
-      request.fields['Date'] = date;
-      request.fields['Isi_1'] = isi1;
-      request.fields['Isi_2'] = isi2;
-      request.fields['Isi_3'] = isi3;
+      request.fields['title']       = title;
+      request.fields['Date']        = date;
+      request.fields['Isi_1']       = isi1;
+      request.fields['Isi_2']       = isi2;
+      request.fields['Isi_3']       = isi3;
       request.fields['Video_Drive'] = videoDrive;
-      request.fields['Source'] = source;
+      request.fields['Source']      = source;
 
-      // Files (Images & Video)
-      request.files.add(
-        await http.MultipartFile.fromPath('Images_1', imagePath1)
-      );
-      request.files.add(
-        await http.MultipartFile.fromPath('Images_2', imagePath2)
-      );
-      request.files.add(
-        await http.MultipartFile.fromPath('Images_3', imagePath3)
-      );
-      request.files.add(
-        await http.MultipartFile.fromPath('Video', videoPath)
-      );
+      request.files.add(await http.MultipartFile.fromPath('Images_1', imagePath1));
+      request.files.add(await http.MultipartFile.fromPath('Images_2', imagePath2));
+      request.files.add(await http.MultipartFile.fromPath('Images_3', imagePath3));
+      request.files.add(await http.MultipartFile.fromPath('Video',    videoPath));
 
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
+      final response = await http.Response.fromStream(
+        await AuthStorage.sendMultipart(request),
+      );
 
       return _processResponse(response);
     } catch (e) {
@@ -168,13 +142,10 @@ class Market_Outlook_Hook {
     required String marketOutlookId,
   }) async {
     try {
-      final response = await http.delete(
-        Uri.parse("$baseUrl/market-outlook-exclusive/$marketOutlookId"),
-        headers: {
-          "Authorization": "Bearer $token",
-          "Accept": "application/json",
-        },
+      final response = await AuthStorage.delete(
+        "/market-outlook-exclusive/$marketOutlookId",
       );
+
       return _processResponse(response);
     } catch (e) {
       return {
@@ -185,36 +156,31 @@ class Market_Outlook_Hook {
   }
 
   // ===============================
-  // 5. GET WITH UPLOADER INFO (PUBLIC)
-  // ✅ FIXED: Properly validate and extract list
+  // 5. GET WITH UPLOADER INFO
   // ===============================
   static Future<Map<String, dynamic>> getWithUploader() async {
     try {
-      final response = await http.get(
-        Uri.parse("$baseUrl/market-outlook-exclusive/full"),
-        headers: {
-          "Accept": "application/json",
-        },
+      final response = await AuthStorage.get(
+        "/market-outlook-exclusive/full",
       );
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> jsonResponse = jsonDecode(response.body);
-        
-        // ✅ Validate structure
-        if (jsonResponse['status'] == 'success' && 
+
+        if (jsonResponse['status'] == 'success' &&
             jsonResponse['data'] is List) {
           return {
             "success": true,
             "data": jsonResponse['data'],
           };
         }
-        
+
         return {
           "success": false,
           "message": "Invalid response structure",
         };
       }
-      
+
       return {
         "success": false,
         "message": "Error ${response.statusCode}: ${response.body}",
@@ -229,30 +195,29 @@ class Market_Outlook_Hook {
 
   // ===============================
   // HELPER: PROCESS RESPONSE
-  // ✅ FIXED: Better error handling
   // ===============================
   static Map<String, dynamic> _processResponse(http.Response response) {
     try {
       final Map<String, dynamic> body = jsonDecode(response.body);
-      
+
       if (response.statusCode == 200) {
         return {
           "success": true,
           "data": body['data'] ?? body,
-          "message": body['message']
+          "message": body['message'],
         };
       } else {
         return {
           "success": false,
           "message": body['detail'] ?? body['message'] ?? "Terjadi kesalahan pada server",
-          "code": response.statusCode
+          "code": response.statusCode,
         };
       }
     } catch (e) {
       return {
         "success": false,
         "message": "Failed to parse response: ${e.toString()}",
-        "code": response.statusCode
+        "code": response.statusCode,
       };
     }
   }

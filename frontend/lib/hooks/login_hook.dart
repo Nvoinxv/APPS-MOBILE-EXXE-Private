@@ -27,10 +27,9 @@ Future<Map<String, dynamic>> LoginHook({
     // ── FIX #1: /login tanpa prefix ──────────────────────────────────────
     // main.py: app.include_router(router_autentikasi)  ← ga ada prefix="/auth"
     // endpoint = /login, /register, /refresh — bukan /auth/login dst.
-    final response = await http.post(
-      Uri.parse('$kBaseUrl/login'),
-      headers: {'Content-Type': 'application/json'},
-      body:    jsonEncode({'email': email, 'password': password}),
+    final response = await AuthStorage.post(
+       '/login',
+      body: {'email': email, 'password': password},
     );
 
     final data = jsonDecode(response.body) as Map<String, dynamic>;

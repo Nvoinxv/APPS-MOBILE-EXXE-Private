@@ -62,7 +62,6 @@ class Daily_Research_Exclusive_Hook {
 
   // =====================================
   // UPLOAD DAILY RESEARCH (ADMIN ONLY)
-  // multipart — ambil token manual dari storage
   // =====================================
   static Future<Map<String, dynamic>> UploadDailyResearch({
     required String title,
@@ -81,15 +80,11 @@ class Daily_Research_Exclusive_Hook {
         return {"success": false, "message": "Token tidak ditemukan, silakan login ulang"};
       }
 
-      var request = http.MultipartRequest(
+      // URL ikut TestingUrlExternal[_mode] otomatis lewat AuthStorage.sendMultipart
+      final request = http.MultipartRequest(
         "POST",
-        Uri.parse("$kBaseUrl/upload-daily-research-exclusive"),
+        Uri.parse("${AuthStorage.activeBaseUrl}/upload-daily-research-exclusive"),
       );
-
-      request.headers.addAll({
-        "Authorization": "Bearer $token",
-        "Accept": "application/json",
-      });
 
       request.fields['title']       = title;
       request.fields['sub_title']   = subTitle;
@@ -102,8 +97,9 @@ class Daily_Research_Exclusive_Hook {
       request.files.add(await http.MultipartFile.fromPath('images', imagePath));
       request.files.add(await http.MultipartFile.fromPath('Video',  videoPath));
 
-      final streamedResponse = await request.send();
-      final response         = await http.Response.fromStream(streamedResponse);
+      final response = await http.Response.fromStream(
+        await AuthStorage.sendMultipart(request),
+      );
 
       if (response.statusCode == 200) {
         final jsonResponse = jsonDecode(response.body);
@@ -135,17 +131,10 @@ class Daily_Research_Exclusive_Hook {
     required String researchId,
   }) async {
     try {
-      final token = await AuthStorage.getToken();
-      if (token == null || token.isEmpty) {
-        return {"success": false, "message": "Token tidak ditemukan, silakan login ulang"};
-      }
-
-      final response = await http.delete(
-        Uri.parse("$kBaseUrl/delete-daily-research-exclusive?research_daily_id=$researchId"),
-        headers: {
-          "Authorization": "Bearer $token",
-          "Accept": "application/json",
-        },
+      // Pakai AuthStorage.delete — ikut TestingUrlExternal[_mode] otomatis
+      final response = await AuthStorage.delete(
+        "/delete-daily-research-exclusive",
+        queryParams: {"research_daily_id": researchId},
       );
 
       if (response.statusCode == 200) {

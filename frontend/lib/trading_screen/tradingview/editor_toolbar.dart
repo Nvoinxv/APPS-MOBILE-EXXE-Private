@@ -3,17 +3,6 @@ import '../../../models/script_file.dart';
 // editor_toolbar.dart
 // Path: frontend/lib/trading_screen/tradingview/editor_toolbar.dart
 //
-// FIX v_dispose_safe:
-//  - [FIXED] EditorToolbar: StatelessWidget → StatefulWidget
-//            Root cause: _handleRun adalah async dan menggunakan BuildContext
-//            dari ListenableBuilder's builder callback setelah await.
-//            Ketika widget di-dispose mid-await (misal user switch screen),
-//            context sudah invalid tapi masih dipakai → TextEditingController
-//            disposed error + _dependents.isEmpty assertion.
-//  - [FIXED] _handleRun: tambah `if (!mounted) return` setelah setiap await
-//  - [FIXED] _handleRun: ScaffoldMessenger di-capture sebelum await
-//  - [FIXED] _handleFormat, _handlePublish: sama — capture messenger dulu
-//  - Semua logic, UI, dan widget lain tidak diubah sama sekali
 // =============================================================================
 
 import 'package:flutter/material.dart';

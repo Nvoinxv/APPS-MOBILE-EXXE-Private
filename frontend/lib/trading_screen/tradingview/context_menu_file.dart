@@ -17,15 +17,6 @@
 //   Publish to Shared → admin only
 //   Copy Path         → always visible
 //
-// FIX v_copy_path:
-//  - [FIXED] _CopyPathRow._copy() pakai file.parentId (UUID) bukan nama folder.
-//            Contoh hasil lama: "b6dfc252-6091-43cd-a87f-53c4f32349d3/main.py"
-//            Hasil baru: "test/test_1/main.py"
-//  - Tambah parameter `resolvedPath` (String?) ke showContextMenuFile dan
-//    _CopyPathRow. Caller tinggal pass workspace.getFilePath(file.id) yang
-//    sudah ada di WorkspaceState — tidak ada logic baru di sini.
-//  - Fallback ke nama file saja kalau resolvedPath null (backward compat).
-//  - Semua logic lain, fitur, dan struktur TIDAK DIUBAH.
 // =============================================================================
 
 import 'package:flutter/material.dart';

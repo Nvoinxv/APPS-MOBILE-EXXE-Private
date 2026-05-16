@@ -35,7 +35,7 @@ class _TvApi {
 
   static Future<http.Response> _delete(String path) async {
     final token = await AuthStorage.getToken();
-    final uri   = Uri.parse('$TestingUrlExternal$path');
+    final uri   = Uri.parse('${AuthStorage.activeBaseUrl}$path');
     var response = await http.delete(
       uri,
       headers: {

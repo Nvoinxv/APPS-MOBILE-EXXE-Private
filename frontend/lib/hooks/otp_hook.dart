@@ -2,9 +2,6 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../utils/auth_storage.dart';
 
-// Base URL — pakai TestingUrlExternal dari auth_storage.dart
-const String _base = TestingUrlExternal;
-
 class SendOtpHook {
 
   // ─────────────────────────────────────────
@@ -16,7 +13,7 @@ class SendOtpHook {
     try {
       print('[DEBUG] Sending OTP to: $email');
 
-      final uri      = Uri.parse("$_base/send-otp-to-email");
+      final uri      = Uri.parse("${AuthStorage.activeBaseUrl}/send-otp-to-email");
       final response = await http.post(
         uri,
         headers: {"Content-Type": "application/json"},
@@ -57,7 +54,7 @@ class SendOtpHook {
       print('[DEBUG] Verifying OTP for: $email');
       print('[DEBUG] OTP: $otp');
 
-      final uri      = Uri.parse("$_base/verify-otp");
+      final uri      = Uri.parse("${AuthStorage.activeBaseUrl}/verify-otp");
       final response = await http.post(
         uri,
         headers: {"Content-Type": "application/json"},
@@ -164,7 +161,7 @@ class SendOtpHook {
       print('[DEBUG] Making authenticated $method request to: $endpoint');
       print('[DEBUG] Token: ${token.substring(0, token.length.clamp(0, 20))}...');
 
-      final uri     = Uri.parse("$_base$endpoint");
+      final uri     = Uri.parse("${AuthStorage.activeBaseUrl}$endpoint");
       final headers = {
         "Content-Type":  "application/json",
         "Authorization": "Bearer $token",

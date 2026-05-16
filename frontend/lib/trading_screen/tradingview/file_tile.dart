@@ -2,17 +2,6 @@
 // file_tile.dart
 // Path: frontend/lib/trading_screen/tradingview/components/file_tile.dart
 //
-// FIX v_copy_path:
-//  - [FIXED] onContextMenu callback signature diperluas jadi
-//            `void Function(Offset globalPos, String resolvedPath)`.
-//            Sebelumnya cuma `void Function(Offset)` → caller tidak pernah
-//            dapat resolved path → showContextMenuFile selalu pakai fallback
-//            file.name doang → hasil copy: "main.py" bukan "tests/main.py".
-//  - Tambah required param `resolvedPath` ke FileTile.
-//    Caller (FolderTreeTile / FileExplorerPanel) pass:
-//      resolvedPath: workspace.getFilePath(file.id)
-//    lalu di callback-nya tinggal forward ke showContextMenuFile(resolvedPath: rp).
-//  - Semua logic, layout, styling, FIX BATCH 4, FIX BATCH 7 IDENTIK.
 // =============================================================================
 
 import 'package:flutter/material.dart';

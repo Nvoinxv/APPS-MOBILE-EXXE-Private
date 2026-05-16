@@ -15,12 +15,6 @@ import 'package:http/http.dart' as http;
 import '../utils/auth_storage.dart';
 
 // ---------------------------------------------------------------------------
-// Base URL — pakai TestingUrlExternal dari auth_storage.dart
-// ---------------------------------------------------------------------------
-
-const String _kBaseUrl = TestingUrlExternal;
-
-// ---------------------------------------------------------------------------
 // Models
 // ---------------------------------------------------------------------------
 
@@ -249,24 +243,8 @@ class AiNewsException implements Exception {
 }
 
 // ---------------------------------------------------------------------------
-// Internal HTTP helpers
+// Internal helpers
 // ---------------------------------------------------------------------------
-
-/// Headers tanpa auth — untuk endpoint publik (status)
-Map<String, String> get _publicHeaders => {
-  'Content-Type': 'application/json',
-  'Accept':       'application/json',
-};
-
-/// Headers dengan Bearer token — untuk endpoint yang butuh auth
-Future<Map<String, String>> _authHeaders() async {
-  final token = await AuthStorage.getToken();
-  return {
-    'Content-Type':  'application/json',
-    'Accept':        'application/json',
-    if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
-  };
-}
 
 void _assertOk(http.Response response) {
   if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -277,23 +255,6 @@ void _assertOk(http.Response response) {
     } catch (_) {}
     throw AiNewsException(statusCode: response.statusCode, message: detail);
   }
-}
-
-/// Coba refresh token kalau response 401, lalu ulangi request.
-/// [retry] adalah callback yang dipanggil setelah refresh berhasil.
-Future<http.Response> _withRefresh(
-  http.Response response,
-  Future<http.Response> Function() retry,
-) async {
-  if (response.statusCode != 401) return response;
-  final refreshed = await AuthStorage.refreshAccessToken();
-  if (!refreshed) {
-    throw const AiNewsException(
-      statusCode: 401,
-      message: 'Session expired. Silakan login ulang.',
-    );
-  }
-  return retry();
 }
 
 // ---------------------------------------------------------------------------
@@ -309,10 +270,7 @@ class AiNewsStatusHook extends ChangeNotifier {
   Future<void> fetch() async {
     isLoading = true; error = null; notifyListeners();
     try {
-      final response = await http.get(
-        Uri.parse('$_kBaseUrl/ai/news/status'),
-        headers: _publicHeaders,
-      );
+      final response = await AuthStorage.get('/ai/news/status');
       _assertOk(response);
       data = AiNewsStatusResponse.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>,
@@ -338,22 +296,11 @@ class AiNewsGenerateHook extends ChangeNotifier {
   Future<void> generate([GenerateNewsRequest request = const GenerateNewsRequest()]) async {
     isLoading = true; error = null; notifyListeners();
     try {
-      final uri  = Uri.parse('$_kBaseUrl/ai/news/generate');
-      final body = jsonEncode(request.toJson());
-
-      var response = await http.post(
-        uri,
-        headers: await _authHeaders(),
-        body:    body,
+      // AuthStorage.post sudah handle auth header + auto-refresh 401 + fallback URL
+      final response = await AuthStorage.post(
+        '/ai/news/generate',
+        body: request.toJson(),
       );
-
-      // Auto-refresh 401
-      response = await _withRefresh(response, () async => http.post(
-        uri,
-        headers: await _authHeaders(),
-        body:    body,
-      ));
-
       _assertOk(response);
       data = GenerateNewsResponse.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>,
@@ -379,22 +326,10 @@ class AiNewsGenerateCustomHook extends ChangeNotifier {
   Future<void> generate(GenerateNewsRequest request) async {
     isLoading = true; error = null; notifyListeners();
     try {
-      final uri  = Uri.parse('$_kBaseUrl/ai/news/generate/custom');
-      final body = jsonEncode(request.toJson());
-
-      var response = await http.post(
-        uri,
-        headers: await _authHeaders(),
-        body:    body,
+      final response = await AuthStorage.post(
+        '/ai/news/generate/custom',
+        body: request.toJson(),
       );
-
-      // Auto-refresh 401
-      response = await _withRefresh(response, () async => http.post(
-        uri,
-        headers: await _authHeaders(),
-        body:    body,
-      ));
-
       _assertOk(response);
       data = GenerateNewsResponse.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>,
@@ -424,20 +359,33 @@ class AiNewsGenerateBackgroundHook extends ChangeNotifier {
   }) async {
     isLoading = true; error = null; notifyListeners();
     try {
-      final uri = Uri.parse('$_kBaseUrl/ai/news/generate/background').replace(
+      // Endpoint ini pakai POST dengan query params (bukan body JSON)
+      // Pakai http.post langsung dengan activeBaseUrl supaya ikut mode fallback
+      final uri = Uri.parse('${AuthStorage.activeBaseUrl}/ai/news/generate/background').replace(
         queryParameters: {
           'max_news':   maxNews.toString(),
           'categories': categories,
           'language':   language,
         },
       );
-
-      var response = await http.post(uri, headers: await _authHeaders());
+      final token = await AuthStorage.getToken();
+      var response = await http.post(uri, headers: {
+        'Content-Type': 'application/json',
+        'Accept':       'application/json',
+        if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+      });
 
       // Auto-refresh 401
-      response = await _withRefresh(response, () async =>
-        http.post(uri, headers: await _authHeaders()),
-      );
+      if (response.statusCode == 401) {
+        final refreshed = await AuthStorage.refreshAccessToken();
+        if (!refreshed) throw const AiNewsException(statusCode: 401, message: 'Session expired. Silakan login ulang.');
+        final newToken = await AuthStorage.getToken();
+        response = await http.post(uri, headers: {
+          'Content-Type': 'application/json',
+          'Accept':       'application/json',
+          if (newToken != null && newToken.isNotEmpty) 'Authorization': 'Bearer $newToken',
+        });
+      }
 
       // 202 Accepted adalah sukses untuk background job
       if (response.statusCode != 202) _assertOk(response);

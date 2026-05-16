@@ -2,9 +2,6 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../utils/auth_storage.dart';
 
-// Base URL — pakai TestingUrlExternal dari auth_storage.dart
-const String _base = TestingUrlExternal;
-
 class Quant_Exclusive_Hook {
 
   // ===============================
@@ -13,7 +10,7 @@ class Quant_Exclusive_Hook {
   static Future<Map<String, dynamic>> GetAllQuantExclusive() async {
     try {
       final token = await AuthStorage.getToken();
-      final uri   = Uri.parse("$_base/get-quant-exclusive");
+      final uri   = Uri.parse("${AuthStorage.activeBaseUrl}/get-quant-exclusive");
 
       var response = await http.get(uri, headers: {
         "Authorization": "Bearer ${token ?? ''}",
@@ -58,7 +55,7 @@ class Quant_Exclusive_Hook {
     try {
       final token = await AuthStorage.getToken();
       final uri   = Uri.parse(
-        "$_base/get-quant-title-exclusive?title=${Uri.encodeComponent(title)}",
+        "${AuthStorage.activeBaseUrl}/get-quant-title-exclusive?title=${Uri.encodeComponent(title)}",
       );
 
       var response = await http.get(uri, headers: {
@@ -120,7 +117,7 @@ class Quant_Exclusive_Hook {
 
       var request = http.MultipartRequest(
         "POST",
-        Uri.parse("$_base/upload-quant-exclusive"),
+        Uri.parse("${AuthStorage.activeBaseUrl}/upload-quant-exclusive"),
       );
 
       request.headers.addAll({
@@ -162,7 +159,7 @@ class Quant_Exclusive_Hook {
 
         var retryRequest = http.MultipartRequest(
           "POST",
-          Uri.parse("$_base/upload-quant-exclusive"),
+          Uri.parse("${AuthStorage.activeBaseUrl}/upload-quant-exclusive"),
         );
         retryRequest.headers.addAll({
           "Authorization": "Bearer ${newToken ?? ''}",
@@ -207,7 +204,7 @@ class Quant_Exclusive_Hook {
     try {
       final token = await AuthStorage.getToken();
       final uri   = Uri.parse(
-        "$_base/delete-quant-trade-exclusive?quant_id=$quantId",
+        "${AuthStorage.activeBaseUrl}/delete-quant-trade-exclusive?quant_id=$quantId",
       );
 
       var response = await http.delete(uri, headers: {
@@ -240,7 +237,7 @@ class Quant_Exclusive_Hook {
   static Future<Map<String, dynamic>> GetQuantWithUploader() async {
     try {
       final token = await AuthStorage.getToken();
-      final uri   = Uri.parse("$_base/get-quant-trade-with-upload-exclusive");
+      final uri   = Uri.parse("${AuthStorage.activeBaseUrl}/get-quant-trade-with-upload-exclusive");
 
       var response = await http.get(
         uri,

@@ -100,7 +100,7 @@ Future<String> uploadProfileImageHook({
 
     final request = http.MultipartRequest(
       'POST',
-      Uri.parse('$TestingUrlExternal/upload-profile-image'),
+      Uri.parse('${AuthStorage.activeBaseUrl}/upload-profile-image'),
     );
 
     request.headers['Authorization'] = 'Bearer $token';
