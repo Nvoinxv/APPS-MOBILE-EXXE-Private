@@ -292,7 +292,7 @@ class _TradingViewCodeEditorScreenState
     if (!mounted) return;
     setState(() => _indicatorsLoading = true);
     final token  = await AuthStorage.getToken() ?? '';
-    final result = await Indicator_Exclusive_Hook.GetAllIndicators(token: token);
+    final result = await Indicator_Exclusive_Hook.GetAllIndicators();
     if (!mounted) return;
     setState(() {
       _indicatorsLoading = false;

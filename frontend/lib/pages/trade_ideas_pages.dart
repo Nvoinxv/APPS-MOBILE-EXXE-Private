@@ -43,7 +43,6 @@ class _TradeIdeasSectionState extends State<TradeIdeasSection> {
     setState(() => isLoading = true);
     try {
       final result = await Trade_Ideas_Hook.GetAllTradeIdeas(
-        token: widget.token,
       );
       if (result['success'] == true) {
         final data = result['data'];
@@ -105,7 +104,6 @@ class _TradeIdeasSectionState extends State<TradeIdeasSection> {
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: SectionLockBanner(
                   sectionName: 'Trade Ideas',
-                  token: widget.token,
                 ),
               ),
             ),
@@ -258,7 +256,6 @@ class _TradeIdeasSectionState extends State<TradeIdeasSection> {
                 _buildSearchBar(),
                 const SizedBox(width: 16),
                 UploadGuard(
-                  token: widget.token,
                   child: MouseRegion(
                     cursor: SystemMouseCursors.click,
                     child: ElevatedButton.icon(

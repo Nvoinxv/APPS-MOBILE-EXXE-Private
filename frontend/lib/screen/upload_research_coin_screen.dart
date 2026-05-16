@@ -120,7 +120,6 @@ class _Upload_Research_Coins_State extends State<UploadResearchCoinScreen> {
     try {
       // Call API
       final result = await Research_Coin_Hook.UploadResearchCoin(
-        token: widget.token,
         title: _titleController.text.trim(),
         fileLink: _FileLinkController.text.trim(),
         image: _image!,
