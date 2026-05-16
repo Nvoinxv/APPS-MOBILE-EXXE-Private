@@ -561,7 +561,6 @@ class _TradingViewCodeEditorScreenState
   Future<void> _onIndicatorDelete(IndicatorMeta ind) async {
     final token  = await AuthStorage.getToken() ?? '';
     final result = await Indicator_Exclusive_Hook.DeleteIndicator(
-      token:       token,
       indicatorId: ind.id,
     );
     if (result['success'] == true) {

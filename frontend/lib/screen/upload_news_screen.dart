@@ -126,7 +126,6 @@ class _UploadNewsScreenState extends State<UploadNewsScreen> {
       
       // Call API
       final result = await News_Exclusive_Hook.UploadNewsExclusive(
-        token: widget.token,
         title: _titleController.text.trim(),
         description: _descriptionController.text.trim(),
         source: _sourceController.text.trim(),

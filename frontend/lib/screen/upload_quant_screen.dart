@@ -110,7 +110,6 @@ class _UploadQuantScreenState extends State<UploadQuantScreen> {
     try {
       // ✅ Call API with ALL required fields
       final result = await Quant_Exclusive_Hook.UploadQuantExclusiveData(
-        token: widget.token,
         judulPair: _judulPairController.text.trim(),
         name: _nameController.text.trim(),
         linkTradingView: _linkTradingViewController.text.trim(),

@@ -27,7 +27,7 @@ class _TradeIdeasScreenState extends State<TradeIdeasScreen> {
   Future<void> _loadTradeIdeasData() async {
     setState(() => isLoading = true);
     
-    final result = await Trade_Ideas_Hook.GetAllTradeIdeas(token: widget.token);
+    final result = await Trade_Ideas_Hook.GetAllTradeIdeas();
     
     if (result['success'] == true) {
       setState(() {
