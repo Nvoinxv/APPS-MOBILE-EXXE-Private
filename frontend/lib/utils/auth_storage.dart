@@ -25,6 +25,7 @@ const Map<AppMode, List<String>> TestingUrlExternal = {
     'http://localhost:8080',                           // Local dev utama
     'https://disdain-decathlon-probe.ngrok-free.app', // Ngrok fallback
     'http://103.156.165.100:8080', // IP publik buat share ke teman gw
+    "https://purple-ethics-proxy-needed.trycloudflare.com", // Cloudflare
   ],
   AppMode.production: [
     'https://api.yourproduction.com',                 // Production utama
