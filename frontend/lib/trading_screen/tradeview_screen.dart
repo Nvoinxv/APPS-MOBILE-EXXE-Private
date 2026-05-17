@@ -49,10 +49,9 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
   late ChartController _controller;
   late final IsolatedTradingViewHook _editorHook;
 
-  final GlobalKey<RiskRatioInteractiveState> _riskRatioKey = GlobalKey();
-  final GlobalKey<FibonacciInteractiveState> _fibonacciKey = GlobalKey();
-
-  final ValueNotifier<Offset?> _crosshairNotifier = ValueNotifier(null);
+  final GlobalKey<RiskRatioInteractiveState> _riskRatioKey  = GlobalKey();
+  final GlobalKey<FibonacciInteractiveState> _fibonacciKey  = GlobalKey();
+  final ValueNotifier<Offset?>               _crosshairNotifier = ValueNotifier(null);
 
   final Map<int, bool>   _pointerOwnership = {};
   final Map<int, Offset> _pendingDraw      = {};
@@ -62,31 +61,32 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
   final FocusNode _chartFocus     = FocusNode();
 
   bool _isFibonacciMode = false;
-
   ChartStyleState _chartStyle = const ChartStyleState();
 
+  // Chart geometry — diupdate dari LayoutBuilder, bukan di build phase
   Size           _lastChartSize = Size.zero;
   ChartViewport? _lastViewport;
 
-  double _scaleBase  = 1.0;
-  Offset _scaleFocal = Offset.zero;
-
+  // Throttle state untuk _onControllerUpdate
+  double _lastScale   = 1.0;
+  double _lastOffsetX = 0.0;
+  double _lastOffsetY = 0.0;
   int    _lastCandleCount = 0;
   String _lastTicker      = '';
   String _lastInterval    = '';
-  double _lastScale       = 1.0;
-  double _lastOffsetX     = 0.0;
-  double _lastOffsetY     = 0.0;
 
-  // ── Panel layout state ────────────────────────────────────────────────────
+  // Panel layout
   double _bottomHeight   = 220.0;
   bool   _bottomExpanded = true;
-
-  static const double _minBottom = 48.0;
-
-  // Thickness ResizableDivider default = 6px — dipakai untuk hitung
-  // available height yang akurat di _buildChartArea.
+  static const double _minBottom        = 48.0;
   static const double _dividerThickness = 6.0;
+
+  // FIX: notifier terpisah untuk data chart — isolasi rebuild candle/grid
+  // dari rebuild crosshair & UI panel lainnya
+  final _chartDataVersion = ValueNotifier<int>(0);
+
+  double _scaleBase  = 1.0;
+  Offset _scaleFocal = Offset.zero;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Lifecycle
@@ -114,43 +114,62 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
     _controller.removeListener(_onControllerUpdate);
     _controller.dispose();
     _crosshairNotifier.dispose();
+    _chartDataVersion.dispose();
     _chartFocus.dispose();
     _editorHook.dispose();
     super.dispose();
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Controller update — hanya setState kalau benar-benar perlu
+  // ═══════════════════════════════════════════════════════════════════════════
+
   void _onControllerUpdate() {
     final state = _controller.state;
 
-    final candleCountChanged = state.candles.length != _lastCandleCount;
-    final tickerChanged      = state.selectedTicker  != _lastTicker;
-    final intervalChanged    = state.selectedInterval != _lastInterval;
-    final scaleChanged       = (state.scale   - _lastScale).abs()   > 0.001;
-    final offsetChanged      = (state.offsetX - _lastOffsetX).abs() > 0.5 ||
-                               (state.offsetY - _lastOffsetY).abs() > 0.5;
-
+    // Ticker/interval/loading → full rebuild (UI panel berubah)
+    final tickerChanged   = state.selectedTicker   != _lastTicker;
+    final intervalChanged = state.selectedInterval != _lastInterval;
     if (tickerChanged || intervalChanged || state.isLoading) {
       _lastTicker   = state.selectedTicker;
       _lastInterval = state.selectedInterval;
-      setState(() {});
+      if (mounted) setState(() {});
       return;
     }
 
-    if (candleCountChanged || scaleChanged) {
+    // Candle count berubah → increment notifier, bukan setState global
+    final candleCountChanged = state.candles.length != _lastCandleCount;
+    if (candleCountChanged) {
       _lastCandleCount = state.candles.length;
-      _lastScale       = state.scale;
-      setState(() {});
+      _chartDataVersion.value++;
       return;
     }
 
+    // Scale berubah → viewport perlu rekalkulasi → increment notifier
+    final scaleChanged = (state.scale - _lastScale).abs() > 0.001;
+    if (scaleChanged) {
+      _lastScale = state.scale;
+      _chartDataVersion.value++;
+      return;
+    }
+
+    // Offset berubah (pan) → increment notifier, threshold lebih longgar
+    // FIX: threshold dinaikkan 0.5 → 2.0 supaya pan halus tidak spam rebuild
+    final offsetChanged =
+        (state.offsetX - _lastOffsetX).abs() > 2.0 ||
+        (state.offsetY - _lastOffsetY).abs() > 2.0;
     if (offsetChanged) {
       _lastOffsetX = state.offsetX;
       _lastOffsetY = state.offsetY;
-      setState(() {});
+      _chartDataVersion.value++;
       return;
     }
 
-    if (state.selectedCandle != null) setState(() {});
+    // Selected candle berubah → hanya panel info yang perlu rebuild
+    // FIX: dulu selalu setState(), sekarang hanya kalau candle benar-benar beda
+    if (state.selectedCandle != null) {
+      if (mounted) setState(() {});
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -245,15 +264,13 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // Code editor panel — open / expand dari Tools menu
+  // Code editor panel
   // ═══════════════════════════════════════════════════════════════════════════
 
   void _openCodeEditor() {
     setState(() {
       _bottomExpanded = true;
-      if (_bottomHeight < _minBottom * 2) {
-        _bottomHeight = 220.0;
-      }
+      if (_bottomHeight < _minBottom * 2) _bottomHeight = 220.0;
     });
   }
 
@@ -285,24 +302,22 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
     final state = _controller.state;
 
     if (_fibVisible && _fibOwnsImmediately(pos)) {
-      final claimed = _fibState?.handlePointerDown(pos) ?? false;
-      _pointerOwnership[e.pointer] = claimed;
+      _pointerOwnership[e.pointer] = _fibState?.handlePointerDown(pos) ?? false;
       return;
     }
 
-    if (_fibVisible && _isFibonacciMode && _fibState != null && !(_fibState!.isDrawing)) {
+    if (_fibVisible && _isFibonacciMode && _fibState != null && !_fibState!.isDrawing) {
       _pendingDraw[e.pointer]      = pos;
       _pointerOwnership[e.pointer] = false;
       return;
     }
 
     if (_rrVisible && _rrOwnsImmediately(pos)) {
-      final claimed = _rrState?.handlePointerDown(pos) ?? false;
-      _pointerOwnership[e.pointer] = claimed;
+      _pointerOwnership[e.pointer] = _rrState?.handlePointerDown(pos) ?? false;
       return;
     }
 
-    if (_rrVisible && state.isRiskRatioMode && _rrState != null && !(_rrState!.isDrawing)) {
+    if (_rrVisible && state.isRiskRatioMode && _rrState != null && !_rrState!.isDrawing) {
       _pendingDraw[e.pointer]      = pos;
       _pointerOwnership[e.pointer] = false;
       return;
@@ -341,17 +356,20 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
     }
 
     final state = _controller.state;
-    if (!state.isRiskRatioMode && !_isFibonacciMode && _activePointers.length == 1) {
-      _controller.applyPanDelta(e.delta.dx, e.delta.dy);
+    final inDrawMode = state.isRiskRatioMode || _isFibonacciMode;
+
+    if (_activePointers.length == 1) {
+      if (!inDrawMode) {
+        _controller.applyPanDelta(e.delta.dx, e.delta.dy);
+      } else {
+        final rrHit  = _rrVisible  && _rrOwnsImmediately(pos);
+        final fibHit = _fibVisible && _fibOwnsImmediately(pos);
+        if (!rrHit && !fibHit) _controller.applyPanDelta(e.delta.dx, e.delta.dy);
+      }
     }
 
-    if ((state.isRiskRatioMode || _isFibonacciMode) && _activePointers.length == 1) {
-  final rrHit  = _rrVisible  && _rrOwnsImmediately(pos);
-  final fibHit = _fibVisible && _fibOwnsImmediately(pos);
-  if (!rrHit && !fibHit) _controller.applyPanDelta(e.delta.dx, e.delta.dy);
-}
-
-    if (state.showCrosshair && !state.isRiskRatioMode && !_isFibonacciMode) {
+    // FIX: crosshair hanya update notifier — tidak sentuh setState sama sekali
+    if (state.showCrosshair && !inDrawMode) {
       _crosshairNotifier.value = pos;
     }
   }
@@ -407,18 +425,16 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
   // Style helpers
   // ═══════════════════════════════════════════════════════════════════════════
 
-  CandlestickStyle _toCandlestickStyle(ChartStyleState s) {
-    return CandlestickStyle(
-      bullishColor:    s.bullishColor,
-      bearishColor:    s.bearishColor,
-      backgroundColor: s.backgroundColor,
-      gridColor:       s.gridColor.withOpacity(s.gridOpacity),
-      textColor:       s.textColor,
-      crosshairColor:  s.crosshairColor,
-      bullishStyle:    s.bodyStyle,
-      bearishStyle:    s.bodyStyle,
-    );
-  }
+  CandlestickStyle _toCandlestickStyle(ChartStyleState s) => CandlestickStyle(
+    bullishColor:    s.bullishColor,
+    bearishColor:    s.bearishColor,
+    backgroundColor: s.backgroundColor,
+    gridColor:       s.gridColor.withOpacity(s.gridOpacity),
+    textColor:       s.textColor,
+    crosshairColor:  s.crosshairColor,
+    bullishStyle:    s.bodyStyle,
+    bearishStyle:    s.bodyStyle,
+  );
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Build
@@ -486,11 +502,8 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
                 borderRadius: BorderRadius.circular(8),
                 border:       Border.all(color: style.gridColor),
               ),
-              child: Icon(
-                Icons.arrow_back_ios_new_rounded,
-                color: style.textColor,
-                size:  16,
-              ),
+              child: Icon(Icons.arrow_back_ios_new_rounded,
+                  color: style.textColor, size: 16),
             ),
           ),
           const SizedBox(width: AppSizes.paddingLarge),
@@ -565,33 +578,37 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
 
     return LayoutBuilder(
       builder: (context, outerConstraints) {
-        final totalH     = outerConstraints.maxHeight;
-        final maxBottom  = totalH * 0.80;
+        final totalH    = outerConstraints.maxHeight;
+        final maxBottom = totalH * 0.80;
         final halfBottom = totalH * 0.40;
 
-        // [FIX] Koreksi _bottomHeight sesegera mungkin tanpa menunggu
-        // postFrameCallback: jika nilai saat ini melebihi maxBottom yang
-        // dihitung dari totalH baru (mis. window resize / panel diperkecil),
-        // jadwalkan setState dan sekaligus clamp di render (lihat
-        // AnimatedContainer di bawah) supaya frame ini tidak overflow.
-        if (_bottomHeight > maxBottom) {
+        // FIX: clamp SINKRON — tidak pakai SchedulerBinding di dalam build.
+        // Kalau _bottomHeight sudah aman, tidak ada setState sama sekali.
+        final clampedBottom = _bottomHeight.clamp(0.0, maxBottom);
+        if (clampedBottom != _bottomHeight) {
+          // Hanya schedule kalau benar-benar perlu koreksi
           SchedulerBinding.instance.addPostFrameCallback((_) {
-            if (mounted) setState(() => _bottomHeight = maxBottom);
+            if (mounted && _bottomHeight != clampedBottom) {
+              setState(() => _bottomHeight = clampedBottom);
+            }
           });
         }
 
         return Column(
           children: [
-
+            // ── Chart canvas — pakai ValueListenableBuilder supaya
+            //    pan/zoom tidak rebuild seluruh widget tree ──────────────────
             Expanded(
               child: LayoutBuilder(
                 builder: (context, constraints) {
+                  // FIX: update _lastChartSize via post-frame, bukan di build phase
                   final newSize = Size(constraints.maxWidth, constraints.maxHeight);
-                  if (newSize != _lastChartSize) _lastChartSize = newSize;
-
-                  final vp             = _controller.buildViewport(_lastChartSize);
-                  _lastViewport        = vp;
-                  final offsetAsOffset = Offset(state.offsetX, state.offsetY);
+                  if (newSize != _lastChartSize) {
+                    SchedulerBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) _lastChartSize = newSize;
+                    });
+                    _lastChartSize = newSize; // tetap update sinkron untuk render
+                  }
 
                   return KeyboardListener(
                     focusNode: _chartFocus,
@@ -609,112 +626,127 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
                       child: GestureDetector(
                         onScaleStart:  _onScaleStart,
                         onScaleUpdate: _onScaleUpdate,
-                        child: Stack(
-                          children: [
+                        // FIX: chart canvas rebuild hanya saat _chartDataVersion naik,
+                        //      bukan setiap setState() dari controller
+                        child: ValueListenableBuilder<int>(
+                          valueListenable: _chartDataVersion,
+                          builder: (context, _, __) {
+                            final cs    = _controller.state;
+                            final vp    = _controller.buildViewport(_lastChartSize);
+                            _lastViewport = vp;
+                            final off = Offset(cs.offsetX, cs.offsetY);
 
-                            RepaintBoundary(
-                              child: Column(
-                                children: [
-                                  Expanded(
-                                    flex: 4,
-                                    child: Stack(
-                                      children: [
-                                        if (state.showGrid)
-                                          Positioned.fill(
-                                            child: CustomPaint(
-                                              painter: GridInteractive(
-                                                candles:          state.candles,
-                                                style:            style,
-                                                scale:            state.scale,
-                                                offsetY:          state.offsetY,
-                                                offset:           offsetAsOffset,
-                                                showVolume:       state.showVolume,
-                                                selectedInterval: state.selectedInterval,
+                            return Stack(
+                              children: [
+
+                                // ── Candles + grid — RepaintBoundary sendiri ──
+                                RepaintBoundary(
+                                  child: Column(
+                                    children: [
+                                      Expanded(
+                                        flex: 4,
+                                        child: Stack(
+                                          children: [
+                                            if (cs.showGrid)
+                                              Positioned.fill(
+                                                child: CustomPaint(
+                                                  painter: GridInteractive(
+                                                    candles:          cs.candles,
+                                                    style:            style,
+                                                    scale:            cs.scale,
+                                                    offsetY:          cs.offsetY,
+                                                    offset:           off,
+                                                    showVolume:       cs.showVolume,
+                                                    selectedInterval: cs.selectedInterval,
+                                                  ),
+                                                ),
                                               ),
+                                            InteractiveCandlestickChart(
+                                              candles:          cs.candles,
+                                              style:            style,
+                                              showVolume:       cs.showVolume,
+                                              scale:            cs.scale,
+                                              offset:           off,
+                                              onScaleUpdate:    null,
+                                              onOffsetUpdate:   null,
+                                              onCandleSelected: _controller.selectCandle,
                                             ),
-                                          ),
-                                        InteractiveCandlestickChart(
-                                          candles:          state.candles,
-                                          style:            style,
-                                          showVolume:       state.showVolume,
-                                          scale:            state.scale,
-                                          offset:           offsetAsOffset,
-                                          onScaleUpdate:    null,
-                                          onOffsetUpdate:   null,
-                                          onCandleSelected: _controller.selectCandle,
+                                          ],
                                         ),
-                                      ],
-                                    ),
-                                  ),
-                                  if (state.showVolume)
-                                    FuturisticVolumeBar(
-                                      candles:         state.candles,
-                                      bullishColor:    style.bullishColor,
-                                      bearishColor:    style.bearishColor,
-                                      backgroundColor: style.backgroundColor,
-                                      scale:           state.scale,
-                                      offset:          offsetAsOffset,
-                                      selectedIndex:   state.candles.indexOf(
-                                        state.selectedCandle ?? state.candles.last,
                                       ),
-                                      height: AppSizes.volumeBarHeight,
-                                    ),
-                                ],
-                              ),
-                            ),
-
-                            if (state.showCrosshair && !state.isRiskRatioMode && !_isFibonacciMode)
-                              Positioned.fill(
-                                child: IgnorePointer(
-                                  child: ValueListenableBuilder<Offset?>(
-                                    valueListenable: _crosshairNotifier,
-                                    builder: (_, pos, __) {
-                                      if (pos == null) return const SizedBox.shrink();
-                                      final currentVp = _lastViewport;
-                                      if (currentVp == null) return const SizedBox.shrink();
-                                      return CustomPaint(
-                                        painter: CrosshairPainter(
-                                          position:             pos,
-                                          color:                style.bullishColor,
-                                          strokeWidth:          1.0,
-                                          showLabels:           true,
-                                          priceLabel:           currentVp.yToPrice(pos.dy).toStringAsFixed(2),
-                                          timeLabel:            _timeLabel(pos.dx, state.candles, currentVp),
-                                          labelBackgroundColor: style.backgroundColor,
-                                          labelTextColor:       style.textColor,
+                                      if (cs.showVolume)
+                                        FuturisticVolumeBar(
+                                          candles:         cs.candles,
+                                          bullishColor:    style.bullishColor,
+                                          bearishColor:    style.bearishColor,
+                                          backgroundColor: style.backgroundColor,
+                                          scale:           cs.scale,
+                                          offset:          off,
+                                          selectedIndex:   cs.candles.indexOf(
+                                            cs.selectedCandle ?? cs.candles.last,
+                                          ),
+                                          height: AppSizes.volumeBarHeight,
                                         ),
-                                      );
-                                    },
+                                    ],
                                   ),
                                 ),
-                              ),
 
-                            if (_fibVisible)
-                              Positioned.fill(
-                                child: FibonacciInteractive(
-                                  key:             _fibonacciKey,
-                                  viewport:        vp,
-                                  accentColor:     FibonacciButton.fibColor,
-                                  backgroundColor: style.backgroundColor,
-                                  textColor:       style.textColor,
-                                  chartStyle:      _chartStyle,
-                                ),
-                              ),
+                                // ── Crosshair — ValueListenableBuilder sendiri,
+                                //    zero setState ─────────────────────────────
+                                if (cs.showCrosshair && !cs.isRiskRatioMode && !_isFibonacciMode)
+                                  Positioned.fill(
+                                    child: IgnorePointer(
+                                      child: ValueListenableBuilder<Offset?>(
+                                        valueListenable: _crosshairNotifier,
+                                        builder: (_, pos, __) {
+                                          if (pos == null) return const SizedBox.shrink();
+                                          final currentVp = _lastViewport;
+                                          if (currentVp == null) return const SizedBox.shrink();
+                                          return CustomPaint(
+                                            painter: CrosshairPainter(
+                                              position:             pos,
+                                              color:                style.bullishColor,
+                                              strokeWidth:          1.0,
+                                              showLabels:           true,
+                                              priceLabel:           currentVp.yToPrice(pos.dy).toStringAsFixed(2),
+                                              timeLabel:            _timeLabel(pos.dx, cs.candles, currentVp),
+                                              labelBackgroundColor: style.backgroundColor,
+                                              labelTextColor:       style.textColor,
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ),
 
-                            if (_rrVisible)
-                              Positioned.fill(
-                                child: RiskRatioInteractive(
-                                  key:             _riskRatioKey,
-                                  viewport:        vp,
-                                  accentColor:     state.riskRatioMode == RiskRatioMode.buy
-                                      ? style.bullishColor
-                                      : style.bearishColor,
-                                  backgroundColor: style.backgroundColor,
-                                  textColor:       style.textColor,
-                                  initialMode:     state.riskRatioMode,
-                                ),
-                              ),
-                          ],
+                                if (_fibVisible)
+                                  Positioned.fill(
+                                    child: FibonacciInteractive(
+                                      key:             _fibonacciKey,
+                                      viewport:        vp,
+                                      accentColor:     FibonacciButton.fibColor,
+                                      backgroundColor: style.backgroundColor,
+                                      textColor:       style.textColor,
+                                      chartStyle:      _chartStyle,
+                                    ),
+                                  ),
+
+                                if (_rrVisible)
+                                  Positioned.fill(
+                                    child: RiskRatioInteractive(
+                                      key:             _riskRatioKey,
+                                      viewport:        vp,
+                                      accentColor:     cs.riskRatioMode == RiskRatioMode.buy
+                                          ? style.bullishColor
+                                          : style.bearishColor,
+                                      backgroundColor: style.backgroundColor,
+                                      textColor:       style.textColor,
+                                      initialMode:     cs.riskRatioMode,
+                                    ),
+                                  ),
+                              ],
+                            );
+                          },
                         ),
                       ),
                     ),
@@ -723,6 +755,7 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
               ),
             ),
 
+            // ── Resizable divider ──────────────────────────────────────────
             GestureDetector(
               onDoubleTap: () {
                 setState(() {
@@ -756,24 +789,11 @@ class _TradeViewScreenState extends State<TradeViewScreen> {
               ),
             ),
 
-            // [FIX] Clamp _bottomHeight di sini secara SINKRON saat render.
-            // Root cause overflow 3px: postFrameCallback koreksinya async
-            // (frame berikutnya), sehingga frame ini AnimatedContainer masih
-            // menggunakan _bottomHeight lama yang melebihi maxBottom yang baru
-            // (terjadi saat window resize / layout berubah tiba-tiba).
-            // Solusi: _bottomHeight.clamp(0, maxBottom) langsung di sini
-            // memastikan Column tidak pernah overflow pada frame manapun,
-            // sementara postFrameCallback tetap dipertahankan untuk mengupdate
-            // state agar nilai tersimpan juga ikut terkoreksi.
             AnimatedContainer(
               duration: const Duration(milliseconds: 160),
               curve:    Curves.easeOut,
-              height:   _bottomExpanded
-                  ? _bottomHeight.clamp(0.0, maxBottom)  // ← FIX: clamp sinkron
-                  : 0.0,
-              child: ClipRect(
-                child: _buildBottomPanel(style),
-              ),
+              height:   _bottomExpanded ? clampedBottom : 0.0,
+              child: ClipRect(child: _buildBottomPanel(style)),
             ),
           ],
         );

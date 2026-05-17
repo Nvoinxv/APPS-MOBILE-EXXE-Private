@@ -7,12 +7,6 @@
 //
 // Payload: { "code": "...", "timeout": 10, "folder_id": "abc123" }
 //
-// FIX — Modular workspace support:
-//   - Ganti cwd (path string) → folder_id (MongoDB folder _id).
-//   - Backend fetch semua file dalam folder subtree dari DB,
-//     tulis ke tempdir, lalu Python bisa resolve cross-file imports.
-//   - folderIdFromWorkspace() helper: ambil parentFolderId dari file aktif,
-//     lalu cari root ancestor-nya via WorkspaceState.
 // =============================================================================
 
 import 'dart:async';
