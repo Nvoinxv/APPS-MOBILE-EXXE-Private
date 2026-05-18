@@ -18,6 +18,11 @@ Endpoints:
     GET    /ai/news/status             → cek apakah service siap
     POST   /ai/news/generate/custom    → generate dengan config custom
     POST   /ai/news/generate/background → generate async (background task)
+
+Scheduler:
+    Pipeline dijalankan otomatis HANYA sekali sehari pada pukul 10:00 WITA
+    (UTC+8 = UTC 02:00). Tidak ada trigger saat startup atau saat user
+    masuk/keluar aplikasi.
 """
 
 import os
@@ -28,13 +33,20 @@ _AI_DIR = os.path.dirname(os.path.abspath(__file__))
 if _AI_DIR not in sys.path:
     sys.path.insert(0, _AI_DIR)
 
+from contextlib import asynccontextmanager
+
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from middleware.jwt_dependency import require_internal_or_roles
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from middleware.jwt_dependency import require_roles, Role
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Depends 
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Depends
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+import pytz
 
 try:
     from AI.AI_Generate_Text_News import AIGenerateTextNews, News_Model
@@ -53,6 +65,103 @@ def _load_env() -> None:
     load_dotenv(dotenv_path=env_path)
 
 _load_env()
+
+
+# ---------------------------------------------------------------------------
+# Scheduler — hanya jalan jam 10:00 WITA (UTC+8)
+# ---------------------------------------------------------------------------
+
+WITA = pytz.timezone("Asia/Makassar")  # WITA = UTC+8
+
+_scheduler = AsyncIOScheduler(timezone=WITA)
+
+
+def _get_api_keys_safe() -> tuple[str | None, str | None]:
+    """Ambil API key tanpa raise exception — untuk keperluan scheduler."""
+    ai_key = os.getenv("api_key_ai")
+    news_key = (
+        os.getenv("api_key_news")
+        or os.getenv("API_NEWS")
+        or os.getenv("NEWS_API_KEY")
+    )
+    return ai_key, news_key
+
+
+async def _scheduled_generate() -> None:
+    """
+    Job yang dijalankan scheduler setiap hari pukul 10:00 WITA.
+    Tidak dipanggil dari mana pun selain scheduler.
+    """
+    print(
+        f"[SCHEDULER] ⏰ Pukul 10:00 WITA — memulai AI Generate News pipeline "
+        f"({datetime.now(WITA).strftime('%Y-%m-%d %H:%M:%S %Z')})"
+    )
+
+    ai_key, news_key = _get_api_keys_safe()
+
+    if not ai_key or not news_key:
+        print("[SCHEDULER] ✗ API key tidak lengkap — pipeline dibatalkan.")
+        return
+
+    try:
+        generator = AIGenerateTextNews(
+            ai_api_key   = ai_key,
+            news_api_key = news_key,
+            output_dir   = "daily_content",
+            max_news     = 3,
+            categories   = ["economy", "technology", "geopolitics"],
+            language     = "en",
+            save_to_mongo= True,
+        )
+        results = generator.run(export_json=True, export_txt=True)
+        print(f"[SCHEDULER] ✓ Selesai — {len(results)} artikel di-generate.")
+    except Exception as e:
+        print(f"[SCHEDULER] ✗ Pipeline error: {e}")
+
+
+def start_scheduler() -> None:
+    """
+    Daftarkan job dan jalankan scheduler.
+    Dipanggil sekali saat aplikasi startup (dari lifespan atau main app).
+    """
+    if _scheduler.running:
+        return
+
+    _scheduler.add_job(
+        func    = _scheduled_generate,
+        trigger = CronTrigger(hour=10, minute=0, timezone=WITA),
+        id      = "daily_news_generate",
+        name    = "Daily AI News Generate — 10:00 WITA",
+        replace_existing = True,
+        misfire_grace_time = 300,  # toleransi 5 menit jika server sempat down
+    )
+
+    _scheduler.start()
+    print("[SCHEDULER] ✓ Scheduler aktif — pipeline akan jalan tiap 10:00 WITA.")
+
+
+def stop_scheduler() -> None:
+    """Hentikan scheduler saat aplikasi shutdown."""
+    if _scheduler.running:
+        _scheduler.shutdown(wait=False)
+        print("[SCHEDULER] Scheduler dihentikan.")
+
+
+# ---------------------------------------------------------------------------
+# Cara integrasi ke main FastAPI app (lifespan):
+#
+#   from AI.AI_Router_news import generate_ai_news_route, start_scheduler, stop_scheduler
+#
+#   @asynccontextmanager
+#   async def lifespan(app: FastAPI):
+#       start_scheduler()
+#       yield
+#       stop_scheduler()
+#
+#   app = FastAPI(lifespan=lifespan)
+#   app.include_router(generate_ai_news_route)
+#
+# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -129,11 +238,13 @@ class GenerateNewsResponse(BaseModel):
 class StatusResponse(BaseModel):
     """Response untuk endpoint /status."""
 
-    status:       str
-    service:      str
-    timestamp:    str
-    api_key_ai:   bool
-    api_key_news: bool
+    status:           str
+    service:          str
+    timestamp:        str
+    api_key_ai:       bool
+    api_key_news:     bool
+    scheduler_active: bool
+    next_run:         str | None
 
 
 # ---------------------------------------------------------------------------
@@ -145,12 +256,7 @@ def _get_api_keys() -> tuple[str, str]:
     Ambil API key dari environment.
     Raise HTTPException 503 jika salah satu tidak tersedia.
     """
-    ai_key   = os.getenv("api_key_ai")
-    news_key = (
-        os.getenv("api_key_news")
-        or os.getenv("API_NEWS")
-        or os.getenv("NEWS_API_KEY")
-    )
+    ai_key, news_key = _get_api_keys_safe()
 
     if not ai_key:
         raise HTTPException(
@@ -203,11 +309,12 @@ def _results_to_response(results: list[News_Model]) -> GenerateNewsResponse:
     "/status",
     response_model=StatusResponse,
     summary="Cek status AI News Generator service",
-    description="Verifikasi apakah API key tersedia dan service siap digunakan.",
+    description="Verifikasi apakah API key tersedia, service siap, dan info jadwal scheduler.",
 )
 async def get_status(user=Depends(require_roles(Role.ADMIN, Role.EXCLUSIVE))) -> StatusResponse:
     """
-    Health-check ringan — hanya cek keberadaan env vars, tidak memanggil API eksternal.
+    Health-check ringan — cek env vars dan status scheduler.
+    Tidak memanggil API eksternal.
     """
     ai_key   = bool(os.getenv("api_key_ai"))
     news_key = bool(
@@ -218,12 +325,21 @@ async def get_status(user=Depends(require_roles(Role.ADMIN, Role.EXCLUSIVE))) ->
 
     status = "ready" if (ai_key and news_key) else "degraded"
 
+    # Info next run dari scheduler
+    next_run_str: str | None = None
+    if _scheduler.running:
+        job = _scheduler.get_job("daily_news_generate")
+        if job and job.next_run_time:
+            next_run_str = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S %Z")
+
     return StatusResponse(
-        status       = status,
-        service      = "AI News Generator — EXXE News",
-        timestamp    = datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        api_key_ai   = ai_key,
-        api_key_news = news_key,
+        status           = status,
+        service          = "AI News Generator — EXXE News",
+        timestamp        = datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        api_key_ai       = ai_key,
+        api_key_news     = news_key,
+        scheduler_active = _scheduler.running,
+        next_run         = next_run_str,
     )
 
 
@@ -232,8 +348,9 @@ async def get_status(user=Depends(require_roles(Role.ADMIN, Role.EXCLUSIVE))) ->
     response_model=GenerateNewsResponse,
     summary="Generate berita bergaya Gen Z (konfigurasi default)",
     description=(
-        "Jalankan pipeline penuh: fetch berita → generate ulang dengan AI (Gemini) "
-        "→ analisis sentiment. Gunakan endpoint ini untuk konfigurasi standar."
+        "Jalankan pipeline secara manual: fetch berita → generate ulang dengan AI (Gemini) "
+        "→ analisis sentiment. Untuk generate otomatis harian, pipeline berjalan "
+        "otomatis setiap pukul 10:00 WITA tanpa perlu hit endpoint ini."
     ),
 )
 async def generate_news(
@@ -241,7 +358,7 @@ async def generate_news(
     user=Depends(require_roles(Role.ADMIN, Role.EXCLUSIVE))
 ) -> GenerateNewsResponse:
     """
-    Pipeline standar AI Generate News.
+    Pipeline standar AI Generate News (trigger manual).
 
     - Fetch berita dari NewsData.io berdasarkan kategori & bahasa.
     - Generate ulang judul + isi dalam gaya Gen Z Indonesia via Gemini.
@@ -302,7 +419,8 @@ async def generate_news_custom(body: GenerateNewsRequest,
     summary="Generate berita secara async (background task)",
     description=(
         "Trigger pipeline di background — langsung return 202 Accepted. "
-        "Cocok untuk job scheduler / cron. Hasil disimpan otomatis ke file JSON/TXT."
+        "Cocok untuk trigger manual darurat. Untuk jadwal harian, "
+        "gunakan scheduler otomatis yang sudah jalan pukul 10:00 WITA."
     ),
     status_code=202,
 )
@@ -318,7 +436,7 @@ async def generate_news_background(
 ) -> JSONResponse:
     """
     Jalankan pipeline di background — response langsung 202 tanpa menunggu selesai.
-    Cocok untuk dipakai dari cron / scheduler yang tidak butuh hasil langsung.
+    Gunakan untuk trigger manual darurat di luar jadwal 10:00 WITA.
     """
     ai_key, news_key = _get_api_keys()
 

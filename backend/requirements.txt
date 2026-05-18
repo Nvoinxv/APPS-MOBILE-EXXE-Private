@@ -41,3 +41,6 @@ midtransclient==1.4.2
 # ── PDF & Feed ───────────────────────────────────────────────────────────────
 pdfplumber==0.11.4
 feedparser==6.0.11
+
+apscheduler==3.11.2
+pytz==2026.2

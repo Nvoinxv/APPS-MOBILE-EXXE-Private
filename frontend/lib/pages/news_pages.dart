@@ -136,13 +136,32 @@ class _NewsSectionState extends State<NewsSection> {
   }
 
   Future<void> _loadAll() async {
-    await _loadDbNews();
-    if (mounted) {
-      setState(() => _isDbLoading = false);
-      _rebuildFeed();
-    }
-    _triggerAiBackground();
+  await _loadDbNews();
+  if (mounted) {
+    setState(() => _isDbLoading = false);
+    _rebuildFeed();
   }
+  await _fetchExistingAiNews(); // ← ganti: fetch saja, tidak generate
+} 
+  Future<void> _fetchExistingAiNews() async {
+  if (!mounted) return;
+  setState(() { _isAiLoading = true; _aiError = null; });
+
+  try {
+    final hook = AiNewsGenerateHook();
+    await hook.generate(const GenerateNewsRequest(
+      maxNews: 5, exportJson: false, exportTxt: false,
+    ));
+    if (hook.data != null && hook.data!.articles.isNotEmpty) {
+      _aiNews = hook.data!.articles;
+      if (mounted) setState(_rebuildFeed);
+    }
+  } catch (e) {
+    if (mounted) _aiError = e.toString();
+  } finally {
+    if (mounted) setState(() => _isAiLoading = false);
+  }
+}
 
   Future<void> _loadDbNews() async {
     try {
@@ -157,38 +176,6 @@ class _NewsSectionState extends State<NewsSection> {
     }
   }
 
-  Future<void> _triggerAiBackground() async {
-    if (!mounted) return;
-    setState(() { _isAiLoading = true; _aiGenerating = true; _aiError = null; });
-
-    try {
-      final bgHook = AiNewsGenerateBackgroundHook();
-      await bgHook.trigger(
-        maxNews: 5, categories: 'economy,technology,geopolitics', language: 'en',
-      );
-      if (bgHook.error != null) { _aiError = bgHook.error!.message; return; }
-      await _pollAiWithBackoff();
-    } catch (e) {
-      if (mounted) _aiError = e.toString();
-    } finally {
-      if (mounted) setState(() { _isAiLoading = false; _aiGenerating = false; });
-    }
-  }
-
-  Future<void> _pollAiWithBackoff() async {
-    const delays = [2, 3, 4, 5];
-    for (final seconds in delays) {
-      await Future.delayed(Duration(seconds: seconds));
-      if (!mounted) return;
-      final hook = AiNewsGenerateHook();
-      await hook.generate(const GenerateNewsRequest(maxNews: 5, exportJson: true, exportTxt: false));
-      if (hook.data != null && hook.data!.articles.isNotEmpty) {
-        _aiNews = hook.data!.articles;
-        if (mounted) setState(_rebuildFeed);
-        return;
-      }
-    }
-  }
 
   void _rebuildFeed() {
     final dbItems = _dbNews.map((e) => UnifiedNewsItem.fromDb(e)).toList();
@@ -221,13 +208,13 @@ class _NewsSectionState extends State<NewsSection> {
   }
 
   Future<void> _refresh() async {
-    if (!mounted) return;
-    setState(() {
-      _dbNews = []; _aiNews = []; _feed = [];
-      _isDbLoading = true; _isAiLoading = false; _aiError = null;
-    });
-    await _loadAll();
-  }
+  if (!mounted) return;
+  setState(() {
+    _dbNews = []; _aiNews = []; _feed = [];
+    _isDbLoading = true; _isAiLoading = false; _aiError = null;
+  });
+  await _loadAll(); // sudah tidak trigger generate
+}
 
   void _openDbNews(UnifiedNewsItem item) {
     Navigator.push(context, MaterialPageRoute(

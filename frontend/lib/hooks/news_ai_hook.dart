@@ -1,13 +1,4 @@
 // news_ai_hook.dart
-// ------------------
-// Hook untuk endpoint AI News Generator — EXXE News
-//
-// Changelog:
-//   - Tambah field `generatedSummary` di GeneratedNewsArticle
-//     (1–2 kalimat ringkasan, maks ~200 karakter, untuk preview card)
-//   - Migrasi URL ke TestingUrlExternal via AuthStorage
-//   - Token diambil otomatis dari AuthStorage.getToken()
-//   - Auto-refresh 401 via AuthStorage.refreshAccessToken()
 
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
@@ -26,7 +17,7 @@ class GeneratedNewsArticle {
   final String originalPublished;
 
   final String generatedTitle;
-  final String generatedSummary; // 1–2 kalimat, maks ~200 karakter
+  final String generatedSummary;
   final String generatedBody;
   final String imageUrl;
 
@@ -73,16 +64,10 @@ class GeneratedNewsArticle {
     );
   }
 
-  /// Ekstrak summary dari JSON.
-  /// Kalau field `generated_summary` ada → pakai itu.
-  /// Kalau tidak ada (data lama) → ambil 2 kalimat pertama dari `generated_body`.
   static String _extractSummary(Map<String, dynamic> json) {
     final fromJson = json['generated_summary'] as String?;
-    if (fromJson != null && fromJson.trim().isNotEmpty) {
-      return fromJson.trim();
-    }
+    if (fromJson != null && fromJson.trim().isNotEmpty) return fromJson.trim();
 
-    // Fallback: generate dari body
     final body = json['generated_body'] as String? ?? '';
     if (body.isEmpty) return '';
 
@@ -146,12 +131,15 @@ class GenerateNewsResponse {
   }
 }
 
+// Satu deklarasi — sudah include schedulerActive & nextRun
 class AiNewsStatusResponse {
   final String status;
   final String service;
   final String timestamp;
   final bool apiKeyAi;
   final bool apiKeyNews;
+  final bool schedulerActive;
+  final String? nextRun;
 
   const AiNewsStatusResponse({
     required this.status,
@@ -159,17 +147,21 @@ class AiNewsStatusResponse {
     required this.timestamp,
     required this.apiKeyAi,
     required this.apiKeyNews,
+    required this.schedulerActive,
+    this.nextRun,
   });
 
   bool get isReady => status == 'ready';
 
   factory AiNewsStatusResponse.fromJson(Map<String, dynamic> json) {
     return AiNewsStatusResponse(
-      status:     json['status']       as String? ?? '',
-      service:    json['service']      as String? ?? '',
-      timestamp:  json['timestamp']    as String? ?? '',
-      apiKeyAi:   json['api_key_ai']   as bool?   ?? false,
-      apiKeyNews: json['api_key_news'] as bool?   ?? false,
+      status:          json['status']           as String? ?? '',
+      service:         json['service']          as String? ?? '',
+      timestamp:       json['timestamp']        as String? ?? '',
+      apiKeyAi:        json['api_key_ai']        as bool?   ?? false,
+      apiKeyNews:      json['api_key_news']      as bool?   ?? false,
+      schedulerActive: json['scheduler_active'] as bool?   ?? false,
+      nextRun:         json['next_run']          as String?,
     );
   }
 }
@@ -261,7 +253,6 @@ void _assertOk(http.Response response) {
 // Hooks
 // ---------------------------------------------------------------------------
 
-/// Status endpoint — tidak butuh auth
 class AiNewsStatusHook extends ChangeNotifier {
   AiNewsStatusResponse? data;
   bool isLoading = false;
@@ -287,7 +278,6 @@ class AiNewsStatusHook extends ChangeNotifier {
   void reset() { data = null; error = null; isLoading = false; notifyListeners(); }
 }
 
-/// Generate default — butuh auth
 class AiNewsGenerateHook extends ChangeNotifier {
   GenerateNewsResponse? data;
   bool isLoading = false;
@@ -296,7 +286,6 @@ class AiNewsGenerateHook extends ChangeNotifier {
   Future<void> generate([GenerateNewsRequest request = const GenerateNewsRequest()]) async {
     isLoading = true; error = null; notifyListeners();
     try {
-      // AuthStorage.post sudah handle auth header + auto-refresh 401 + fallback URL
       final response = await AuthStorage.post(
         '/ai/news/generate',
         body: request.toJson(),
@@ -317,7 +306,6 @@ class AiNewsGenerateHook extends ChangeNotifier {
   void reset() { data = null; error = null; isLoading = false; notifyListeners(); }
 }
 
-/// Generate custom — butuh auth
 class AiNewsGenerateCustomHook extends ChangeNotifier {
   GenerateNewsResponse? data;
   bool isLoading = false;
@@ -346,7 +334,6 @@ class AiNewsGenerateCustomHook extends ChangeNotifier {
   void reset() { data = null; error = null; isLoading = false; notifyListeners(); }
 }
 
-/// Generate background — butuh auth
 class AiNewsGenerateBackgroundHook extends ChangeNotifier {
   BackgroundAcceptedResponse? data;
   bool isLoading = false;
@@ -359,8 +346,6 @@ class AiNewsGenerateBackgroundHook extends ChangeNotifier {
   }) async {
     isLoading = true; error = null; notifyListeners();
     try {
-      // Endpoint ini pakai POST dengan query params (bukan body JSON)
-      // Pakai http.post langsung dengan activeBaseUrl supaya ikut mode fallback
       final uri = Uri.parse('${AuthStorage.activeBaseUrl}/ai/news/generate/background').replace(
         queryParameters: {
           'max_news':   maxNews.toString(),
@@ -375,7 +360,6 @@ class AiNewsGenerateBackgroundHook extends ChangeNotifier {
         if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
       });
 
-      // Auto-refresh 401
       if (response.statusCode == 401) {
         final refreshed = await AuthStorage.refreshAccessToken();
         if (!refreshed) throw const AiNewsException(statusCode: 401, message: 'Session expired. Silakan login ulang.');
@@ -387,7 +371,6 @@ class AiNewsGenerateBackgroundHook extends ChangeNotifier {
         });
       }
 
-      // 202 Accepted adalah sukses untuk background job
       if (response.statusCode != 202) _assertOk(response);
 
       data = BackgroundAcceptedResponse.fromJson(
