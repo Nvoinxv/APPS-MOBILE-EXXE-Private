@@ -2,46 +2,103 @@ import 'dart:convert';
 import '../utils/auth_storage.dart';
 
 class Reset_Password_Hook {
-  // Pakai TestingUrlExternal dari AuthStorage (ngrok / external URL) //
-  // Kalau mau balik ke localhost, tinggal ganti ke kBaseUrl //
-  // Belum production mode //
-  // Soal nya rada mahal pengembangan nya //
-
-  static Future<Map<String, dynamic>> ResetPassHook({
+  // ── Step 1: Request OTP ───────────────────────────────────────────────────
+  // Kirim OTP ke email user
+  static Future<Map<String, dynamic>> requestOtp({
     required String email,
-    required String password,
   }) async {
     try {
-      // Pakai AuthStorage.post() biar konsisten sama base URL & headers //
-      // Path /reset-password gak butuh auth token, tapi AuthStorage.post() //
-      // tetap handle Content-Type otomatis jadi aman //
       final response = await AuthStorage.post(
-        '/reset-password',
+        '/reset-password/request-otp',
         body: {
           "email": email,
-          "password": password,
         },
       );
 
-      // Kalau backend balikin status sukses //
       if (response.statusCode == 200) {
         return {
           "success": true,
           "data": jsonDecode(response.body),
         };
-      }
-
-      // Kalau gagal (email gak ada / error lain) //
-      else {
+      } else {
         return {
           "success": false,
           "message": jsonDecode(response.body),
         };
       }
+    } catch (e) {
+      return {
+        "success": false,
+        "error": e.toString(),
+      };
     }
+  }
 
-    // Kalau error koneksi / parsing //
-    catch (e) {
+  // ── Step 2: Verify OTP ────────────────────────────────────────────────────
+  // Verifikasi kode OTP yang dikirim ke email
+  static Future<Map<String, dynamic>> verifyOtp({
+    required String email,
+    required String otpCode,
+  }) async {
+    try {
+      final response = await AuthStorage.post(
+        '/reset-password/verify-otp',
+        body: {
+          "email": email,
+          "otp_code": otpCode,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        return {
+          "success": true,
+          "data": jsonDecode(response.body),
+        };
+      } else {
+        return {
+          "success": false,
+          "message": jsonDecode(response.body),
+        };
+      }
+    } catch (e) {
+      return {
+        "success": false,
+        "error": e.toString(),
+      };
+    }
+  }
+
+  // ── Step 3: Confirm Reset Password ────────────────────────────────────────
+  // Ganti password baru setelah OTP terverifikasi
+  static Future<Map<String, dynamic>> confirmReset({
+    required String email,
+    required String otpCode,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    try {
+      final response = await AuthStorage.post(
+        '/reset-password/confirm',
+        body: {
+          "email": email,
+          "otp_code": otpCode,
+          "new_password": newPassword,
+          "confirm_password": confirmPassword,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        return {
+          "success": true,
+          "data": jsonDecode(response.body),
+        };
+      } else {
+        return {
+          "success": false,
+          "message": jsonDecode(response.body),
+        };
+      }
+    } catch (e) {
       return {
         "success": false,
         "error": e.toString(),

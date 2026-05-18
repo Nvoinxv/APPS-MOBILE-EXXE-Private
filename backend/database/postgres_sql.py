@@ -2,8 +2,7 @@ import psycopg2
 import os
 from dotenv import load_dotenv
 
-dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
-load_dotenv(dotenv_path=dotenv_path)
+load_dotenv() 
 
 class Postgres_SQL:
     def __init__(self):

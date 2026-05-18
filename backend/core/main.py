@@ -15,6 +15,7 @@ from controller.otp_controller import router_otp
 from controller.daily_research_controller import router_daily_research
 from controller.profile_controller import router_profile
 from controller.execute_controller import router_execute_controller
+from controller.reset_password_controller import reset_password_route
 
 # TradingView Editor (NEW)
 from controller.tradingviewindicator_controller import router_tradingview
@@ -68,6 +69,7 @@ _mount_static("/uploads_images_profile",       "uploads_images_profile",       "
 # Auth & user
 app.include_router(router_autentikasi)
 app.include_router(router_otp)
+app.include_router(reset_password_route)
 
 # Content
 app.include_router(router_daily_research)

@@ -215,7 +215,7 @@ def get_profile(current_user: dict = Depends(get_current_user)):
 # ══════════════════════════════════════════════════════════════════════════════
 # PUT /update-profile
 # ══════════════════════════════════════════════════════════════════════════════
-@router_profile.put("/update-profile")
+@router_profile.patch("/update-profile")
 def update_profile(
     body: UpdateProfileRequest,
     current_user: dict = Depends(get_current_user)

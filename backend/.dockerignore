@@ -2,8 +2,6 @@
 .dockerignore
 .git
 .gitignore
-Dockerfile
-docker-compose.yml
 .github
 
 # Python
@@ -47,10 +45,6 @@ cara_cek_db_local_sql.txt
 .pytest_cache/
 .coverage
 htmlcov/
-
-# Environment
-.env.local
-.env.*.local
 
 # Images & Media (jika besar)
 # images_*/

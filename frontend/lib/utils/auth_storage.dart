@@ -21,11 +21,8 @@ const AppMode _mode = AppMode.maintenance; // ← GANTI DI SINI DOANG
 // Urutan = prioritas (index 0 dicoba duluan, berikutnya fallback).
 // ============================================================
 const Map<AppMode, List<String>> TestingUrlExternal = {
-  AppMode.maintenance: [
-    'http://localhost:8080',                           // Local dev utama
-    'https://disdain-decathlon-probe.ngrok-free.app', // Ngrok fallback
-    'http://103.156.165.100:8080', // IP publik buat share ke teman gw
-    "https://purple-ethics-proxy-needed.trycloudflare.com", // Cloudflare
+  AppMode.maintenance: [                       // Local dev utama
+    'http://103.16.117.89:8080', // IP publik buat share ke teman gw
   ],
   AppMode.production: [
     'https://api.yourproduction.com',                 // Production utama
