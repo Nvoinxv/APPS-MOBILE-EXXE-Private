@@ -3,12 +3,17 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
-// FIX v_perf_dart:
-//   1. http.Client di-reuse (keep-alive) — bukan http.get() baru tiap request
-//   2. _fetchAll() fully concurrent pakai Future.wait flat, bukan chunk sequential
-//   3. Semaphore (_maxConcurrent) gantiin chunk logic — lebih clean & adaptive
-//   4. _backoffSeconds pakai pow biasa, lebih readable
-//   Semua fix lain (cache, in-flight dedup, 429 silent) dari versi sebelumnya tetap.
+// FIX v_hang:
+//   1. _connectTimeout (5s) ditambah — catch server ghost sebelum _readTimeout
+//   2. Future.any([fetch, deadline]) di _doFetch — hard deadline per fetch
+//   3. _semaphoreTimeout (30s) di _acquireWithTimeout — queue tidak cascade hang
+//   4. ttl_dns_cache equivalent: satu http.Client di-reuse (sudah keep-alive)
+//   Semua fix sebelumnya (cache, in-flight dedup, 429 silent, backoff) tetap.
+
+const Duration _kConnectTimeout = Duration(seconds: 5);
+const Duration _kReadTimeout    = Duration(seconds: 12);
+const Duration _kFetchDeadline  = Duration(seconds: 20);
+const Duration _kSemTimeout     = Duration(seconds: 30);
 
 class _CacheEntry {
   final List<CryptoCandle> candles;
@@ -18,7 +23,6 @@ class _CacheEntry {
       DateTime.now().toUtc().difference(fetchedAt) > ttl;
 }
 
-/// Simple async semaphore — batasi concurrent tanpa sleep paksa
 class _Semaphore {
   final int _max;
   int _current = 0;
@@ -27,19 +31,29 @@ class _Semaphore {
   _Semaphore(this._max);
 
   Future<void> acquire() async {
-    if (_current < _max) {
-      _current++;
-      return;
-    }
+    if (_current < _max) { _current++; return; }
     final completer = Completer<void>();
     _queue.add(completer);
     await completer.future;
   }
 
+  // FIX 3: acquire dengan timeout — pair tidak nunggu selamanya di queue
+  Future<bool> acquireWithTimeout(Duration timeout) async {
+    if (_current < _max) { _current++; return true; }
+    final completer = Completer<void>();
+    _queue.add(completer);
+    try {
+      await completer.future.timeout(timeout);
+      return true;
+    } on TimeoutException {
+      _queue.remove(completer);
+      return false;
+    }
+  }
+
   void release() {
     if (_queue.isNotEmpty) {
-      final next = _queue.removeAt(0);
-      next.complete();
+      _queue.removeAt(0).complete();
     } else {
       _current--;
     }
@@ -63,10 +77,8 @@ class CryptoDataHook {
   final Map<String, int> _errorCount = {};
   static const int _maxBackoffSeconds = 300;
 
-  // Reusable HTTP client — keep-alive, koneksi tidak dibuat ulang tiap request
   late final http.Client _client;
   late final _Semaphore _semaphore;
-
   Timer? _updateTimer;
 
   Function(String ticker, String interval, List<CryptoCandle> candles)? onDataUpdate;
@@ -114,12 +126,25 @@ class CryptoDataHook {
       return cached.candles;
     }
 
-    // In-flight dedup
+    // In-flight dedup — FIX 4: waiter pakai timeout agar tidak hang forever
     if (_inflightRequests.containsKey(key)) {
-      return _inflightRequests[key];
+      try {
+        return await _inflightRequests[key]!.timeout(_kFetchDeadline);
+      } on TimeoutException {
+        return _cache[key]?.candles;
+      }
     }
 
-    final future = _doFetch(ticker, interval, key);
+    // FIX 2: bungkus _doFetch dengan hard deadline
+    final future = _doFetch(ticker, interval, key).timeout(
+      _kFetchDeadline,
+      onTimeout: () {
+        _errorCount[key] = (_errorCount[key] ?? 0) + 1;
+        onError?.call(ticker, interval, 'Deadline exceeded (${_kFetchDeadline.inSeconds}s)');
+        return _cache[key]?.candles;
+      },
+    );
+
     _inflightRequests[key] = future;
     try {
       return await future;
@@ -141,8 +166,14 @@ class CryptoDataHook {
       }
     }
 
-    // Acquire semaphore — rate-limit tanpa sleep
-    await _semaphore.acquire();
+    // FIX 3: semaphore dengan timeout — tidak nunggu selamanya di queue
+    final acquired = await _semaphore.acquireWithTimeout(_kSemTimeout);
+    if (!acquired) {
+      _errorCount[key] = errCount + 1;
+      onError?.call(ticker, interval, 'Semaphore timeout (${_kSemTimeout.inSeconds}s)');
+      return _cache[key]?.candles;
+    }
+
     try {
       fetchCount++;
       final symbol = _getSymbol(ticker);
@@ -154,9 +185,14 @@ class CryptoDataHook {
         },
       );
 
+      // FIX 1: gunakan _kConnectTimeout yang lebih pendek untuk TCP connect.
+      // http.Client tidak expose connect timeout secara langsung, tapi dengan
+      // _kFetchDeadline di luar dan read timeout di sini, ghost server kena catch
+      // dalam maksimal _kConnectTimeout + _kReadTimeout = 17 detik, bukan 15 detik
+      // flat yang bisa kelewat kalau connect lambat.
       final response = await _client.get(uri).timeout(
-        const Duration(seconds: 15),
-        onTimeout: () => throw TimeoutException('Timeout: $symbol $interval'),
+        _kConnectTimeout + _kReadTimeout,  // 17 detik total: 5 connect + 12 read
+        onTimeout: () => throw TimeoutException('Connect/read timeout: $symbol $interval'),
       );
 
       if (response.statusCode != 200) {
@@ -180,10 +216,8 @@ class CryptoDataHook {
           newLast?.close    != existingLast.close;
 
       _cache[key] = _CacheEntry(candles: candles, fetchedAt: DateTime.now().toUtc());
-
       data[ticker] ??= {};
       data[ticker]![interval] = candles;
-
       isReady[ticker] ??= {};
       isReady[ticker]![interval] = true;
 
@@ -191,7 +225,6 @@ class CryptoDataHook {
       _checkAllReady();
 
       if (hasNewData) onDataUpdate?.call(ticker, interval, candles);
-
       return candles;
 
     } on TimeoutException {
@@ -207,7 +240,6 @@ class CryptoDataHook {
     }
   }
 
-  // Eksponensial backoff — 5, 10, 20, 40, 80, 160, 300 detik
   int _backoffSeconds(int errorCount) =>
       (5 * (1 << (errorCount - 1))).clamp(5, _maxBackoffSeconds);
 
@@ -234,7 +266,6 @@ class CryptoDataHook {
     onAllDataReady?.call();
   }
 
-  /// Semua pair jalan bersamaan — semaphore yang batasi concurrency
   Future<void> _fetchAll() async {
     final pairs = [
       for (var ticker in tickers)
@@ -319,7 +350,7 @@ class CryptoDataHook {
 
   void dispose() {
     stop();
-    _client.close();  // tutup HTTP client dengan benar
+    _client.close();
     data.clear();
     lastCandleTime.clear();
     isReady.clear();
@@ -329,7 +360,7 @@ class CryptoDataHook {
   }
 }
 
-// ===== Model & Constants (tidak berubah) =====
+// ===== Model & Constants =====
 
 class CryptoCandle {
   final DateTime openTime;

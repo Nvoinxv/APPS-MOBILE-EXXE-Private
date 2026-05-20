@@ -1,13 +1,27 @@
-import pandas as pd
+import pd as pd
 from datetime import datetime, timezone
 import asyncio
 import aiohttp
 from typing import List, Dict, Optional, Callable, Tuple
 import time
 
+# FIX v_hang:
+#   1. connect_timeout TERPISAH dari read_timeout — server ghost tidak akan block 15 detik
+#   2. asyncio.wait_for() di _do_fetch — per-fetch hard deadline, tidak ada fetch yang hang forever
+#   3. asyncio.wait_for() di semaphore.acquire — queue tidak kena cascade hang
+#   4. inflight future dibungkus wait_for — semua waiters punya deadline
+#   5. ttl_dns_cache dinaikkan ke 600 agar DNS hit rate lebih baik untuk user jauh
+#   Semua fix sebelumnya (cache, in-flight dedup, 429 silent, backoff) tetap.
+
+_CONNECT_TIMEOUT = 5.0   # waktu maksimal untuk TCP connect + TLS handshake
+_READ_TIMEOUT    = 12.0  # waktu maksimal untuk membaca response setelah connect
+_FETCH_DEADLINE  = 20.0  # hard deadline untuk SELURUH _do_fetch, termasuk parse
+_SEM_TIMEOUT     = 30.0  # waktu maksimal nunggu giliran semaphore
+
+
 class _CacheEntry:
     __slots__ = ('df', 'fetched_at')
-    def __init__(self, df: pd.DataFrame, fetched_at: float):
+    def __init__(self, df, fetched_at: float):
         self.df = df
         self.fetched_at = fetched_at
 
@@ -49,7 +63,7 @@ class CryptoDataHook:
         self.auto_update_interval = auto_update_interval
         self.candle_limit = candle_limit
 
-        self.data: Dict[str, Dict[str, pd.DataFrame]] = {}
+        self.data: Dict[str, Dict[str, object]] = {}
         self.last_candle_time: Dict[str, Dict[str, datetime]] = {}
         self.is_ready: Dict[str, Dict[str, bool]] = {}
 
@@ -67,19 +81,11 @@ class CryptoDataHook:
         self.on_error: Optional[Callable] = None
         self.on_all_ready: Optional[Callable] = None
 
-        # Reusable session — dibuat sekali saat start, bukan tiap fetch
         self._session: Optional[aiohttp.ClientSession] = None
-
-        # Semaphore: batasi concurrent request tanpa sleep
         self._semaphore = asyncio.Semaphore(max_concurrent)
 
-        # Cache per (ticker, interval)
         self._cache: Dict[str, _CacheEntry] = {}
-
-        # In-flight deduplication: key -> Future
         self._inflight: Dict[str, asyncio.Future] = {}
-
-        # Error count untuk backoff
         self._error_count: Dict[str, int] = {}
         self._MAX_BACKOFF = 300.0
 
@@ -109,10 +115,14 @@ class CryptoDataHook:
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
-            timeout = aiohttp.ClientTimeout(total=15)
+            # FIX 1: connect_timeout TERPISAH — server ghost tidak akan block lama
+            timeout = aiohttp.ClientTimeout(
+                connect=_CONNECT_TIMEOUT,
+                sock_read=_READ_TIMEOUT,
+            )
             connector = aiohttp.TCPConnector(
-                limit=30,           # max total connections
-                ttl_dns_cache=300,  # cache DNS 5 menit
+                limit=30,
+                ttl_dns_cache=600,      # FIX 5: cache DNS lebih lama, hemat round-trip untuk user jauh
                 enable_cleanup_closed=True,
             )
             self._session = aiohttp.ClientSession(timeout=timeout, connector=connector)
@@ -122,7 +132,7 @@ class CryptoDataHook:
     # Core fetch
     # ------------------------------------------------------------------
 
-    async def fetch(self, ticker: str, interval: str) -> Optional[pd.DataFrame]:
+    async def fetch(self, ticker: str, interval: str) -> Optional[object]:
         key = self._cache_key(ticker, interval)
 
         # 1. Cache hit
@@ -130,25 +140,45 @@ class CryptoDataHook:
         if entry and not entry.is_expired(self._cache_ttl(interval)):
             return entry.df
 
-        # 2. In-flight deduplication
+        # 2. In-flight deduplication — FIX 4: waiter pakai wait_for agar tidak hang forever
         if key in self._inflight:
-            return await self._inflight[key]
+            try:
+                return await asyncio.wait_for(
+                    asyncio.shield(self._inflight[key]),
+                    timeout=_FETCH_DEADLINE,
+                )
+            except asyncio.TimeoutError:
+                # Inflight terlalu lama, fallback ke cache
+                return self._cache[key].df if key in self._cache else None
 
         loop = asyncio.get_event_loop()
         fut: asyncio.Future = loop.create_future()
         self._inflight[key] = fut
 
         try:
-            result = await self._do_fetch(ticker, interval, key)
-            fut.set_result(result)
+            # FIX 2: hard deadline untuk seluruh _do_fetch
+            result = await asyncio.wait_for(
+                self._do_fetch(ticker, interval, key),
+                timeout=_FETCH_DEADLINE,
+            )
+            if not fut.done():
+                fut.set_result(result)
             return result
+        except asyncio.TimeoutError:
+            if not fut.done():
+                fut.set_exception(asyncio.TimeoutError("fetch deadline exceeded"))
+            self._error_count[key] = self._error_count.get(key, 0) + 1
+            if self.on_error:
+                self.on_error(ticker, interval, f"Deadline exceeded ({_FETCH_DEADLINE}s)")
+            return self._cache[key].df if key in self._cache else None
         except Exception as exc:
-            fut.set_exception(exc)
+            if not fut.done():
+                fut.set_exception(exc)
             raise
         finally:
             self._inflight.pop(key, None)
 
-    async def _do_fetch(self, ticker: str, interval: str, key: str) -> Optional[pd.DataFrame]:
+    async def _do_fetch(self, ticker: str, interval: str, key: str) -> Optional[object]:
         err_count = self._error_count.get(key, 0)
 
         # Backoff check
@@ -160,37 +190,50 @@ class CryptoDataHook:
                 if elapsed < backoff:
                     return entry.df
 
-        async with self._semaphore:   # rate-limit tanpa sleep
-            try:
-                self.fetch_count += 1
-                session = await self._get_session()
-                params = {
-                    "symbol":   self._symbol(ticker),
-                    "interval": interval,
-                    "limit":    str(self.candle_limit),
-                }
+        # FIX 3: semaphore acquire dengan timeout — pair tidak nunggu selamanya di queue
+        try:
+            await asyncio.wait_for(
+                self._semaphore.acquire(),
+                timeout=_SEM_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            self._error_count[key] = err_count + 1
+            if self.on_error:
+                self.on_error(ticker, interval, f"Semaphore timeout ({_SEM_TIMEOUT}s)")
+            return self._cache[key].df if key in self._cache else None
 
-                async with session.get(self.base_url, params=params) as resp:
-                    if resp.status != 200:
-                        self._error_count[key] = err_count + 1
-                        # 429 = silent backoff, jangan spam onError
-                        if resp.status != 429 and self.on_error:
-                            self.on_error(ticker, interval, f"HTTP {resp.status}")
-                        return self._cache[key].df if key in self._cache else None
+        try:
+            self.fetch_count += 1
+            session = await self._get_session()
+            params = {
+                "symbol":   self._symbol(ticker),
+                "interval": interval,
+                "limit":    str(self.candle_limit),
+            }
 
-                    raw = await resp.json(content_type=None)
+            async with session.get(self.base_url, params=params) as resp:
+                if resp.status != 200:
+                    self._error_count[key] = err_count + 1
+                    if resp.status != 429 and self.on_error:
+                        self.on_error(ticker, interval, f"HTTP {resp.status}")
+                    return self._cache[key].df if key in self._cache else None
 
-            except asyncio.TimeoutError:
-                self._error_count[key] = err_count + 1
-                if self.on_error:
-                    self.on_error(ticker, interval, "Timeout")
-                return self._cache[key].df if key in self._cache else None
+                raw = await resp.json(content_type=None)
 
-            except Exception as exc:
-                self._error_count[key] = err_count + 1
-                if self.on_error:
-                    self.on_error(ticker, interval, str(exc))
-                return self._cache[key].df if key in self._cache else None
+        except (asyncio.TimeoutError, aiohttp.ServerTimeoutError):
+            self._error_count[key] = err_count + 1
+            if self.on_error:
+                self.on_error(ticker, interval, "Timeout (connect/read)")
+            return self._cache[key].df if key in self._cache else None
+
+        except Exception as exc:
+            self._error_count[key] = err_count + 1
+            if self.on_error:
+                self.on_error(ticker, interval, str(exc))
+            return self._cache[key].df if key in self._cache else None
+
+        finally:
+            self._semaphore.release()
 
         # Parse
         self._error_count[key] = 0
@@ -198,7 +241,6 @@ class CryptoDataHook:
         if df is None or df.empty:
             return None
 
-        # Cek apakah data benar-benar baru sebelum trigger callback
         prev_entry = self._cache.get(key)
         has_new_data = (
             prev_entry is None
@@ -218,9 +260,10 @@ class CryptoDataHook:
 
         return df
 
-    def _parse(self, raw: list) -> Optional[pd.DataFrame]:
+    def _parse(self, raw: list) -> Optional[object]:
         if not raw:
             return None
+        import pandas as pd
         rows = []
         for item in raw:
             row = dict(zip(self._COLUMNS, item))
@@ -237,15 +280,15 @@ class CryptoDataHook:
     # Logging & readiness
     # ------------------------------------------------------------------
 
-    def _log_candle(self, ticker: str, interval: str, df: pd.DataFrame):
+    def _log_candle(self, ticker: str, interval: str, df):
         if len(df) < 2:
             return
         last_closed = df.index[-2]
         prev = self.last_candle_time[ticker].get(interval)
         if prev is None:
-            print(f"✅ {self._symbol(ticker)} {interval} ready")
+            print(f"OK {self._symbol(ticker)} {interval} ready")
         elif last_closed > prev:
-            print(f"🔔 {self._symbol(ticker)} {interval} NEW CANDLE")
+            print(f"NEW {self._symbol(ticker)} {interval} new candle")
         self.last_candle_time[ticker][interval] = last_closed
 
     def _check_all_ready(self):
@@ -257,7 +300,7 @@ class CryptoDataHook:
             self.on_all_ready()
 
     # ------------------------------------------------------------------
-    # Fetch all — fully concurrent
+    # Fetch all — fully concurrent, semaphore yang atur concurrency
     # ------------------------------------------------------------------
 
     async def _fetch_all(self):
@@ -266,7 +309,6 @@ class CryptoDataHook:
             for ticker in self.tickers
             for interval in self.intervals
         ]
-        # Semua pair jalan bersamaan, semaphore yang atur concurrency
         await asyncio.gather(
             *(self.fetch(t, i) for t, i in pairs),
             return_exceptions=True,
@@ -277,16 +319,16 @@ class CryptoDataHook:
     # ------------------------------------------------------------------
 
     async def start_auto_update(self):
-        print(f"🔄 Auto-update started: {len(self.tickers)}t x {len(self.intervals)}i")
+        print(f"Auto-update started: {len(self.tickers)}t x {len(self.intervals)}i")
         await self._fetch_all()
         while True:
             await asyncio.sleep(self.auto_update_interval)
             await self._fetch_all()
 
     async def start_adaptive_update(self):
-        print(f"🔄 Adaptive update started")
-        print(f"📊 Tickers: {', '.join(self.tickers)}")
-        print(f"⏱️  Intervals: {', '.join(self.intervals)}")
+        print(f"Adaptive update started")
+        print(f"Tickers: {', '.join(self.tickers)}")
+        print(f"Intervals: {', '.join(self.intervals)}")
 
         await self._fetch_all()
 
@@ -300,14 +342,10 @@ class CryptoDataHook:
                 nxt -= 60
             minutes_to_close = (nxt - cur) if nxt > cur else (60 - cur + nxt)
 
-            if minutes_to_close <= 2:
-                fetch_interval = 5
-                mode = "🔥 AGGRESSIVE"
-            else:
-                fetch_interval = self.auto_update_interval
-                mode = "⏸️  NORMAL"
+            fetch_interval = 5 if minutes_to_close <= 2 else self.auto_update_interval
+            mode = "AGGRESSIVE" if minutes_to_close <= 2 else "NORMAL"
 
-            print(f"\n[{mode}] next close in {minutes_to_close}m, sleep {fetch_interval}s")
+            print(f"[{mode}] next close in {minutes_to_close}m, sleep {fetch_interval}s")
             await asyncio.sleep(fetch_interval)
             await self._fetch_all()
 
@@ -315,7 +353,7 @@ class CryptoDataHook:
     # Public helpers
     # ------------------------------------------------------------------
 
-    def get_candles(self, ticker: str, interval: str = None) -> Optional[pd.DataFrame]:
+    def get_candles(self, ticker: str, interval: str = None):
         interval = interval or self.intervals[0]
         return self.data.get(ticker, {}).get(interval)
 
@@ -368,10 +406,11 @@ class Timeframes:
 # ===== USAGE EXAMPLES =====
 
 async def example_single_pair():
+    import pandas as pd
     hook = CryptoDataHook(tickers=['BTC-USDT'], intervals=['5m', '15m', '1h'])
 
     def on_update(ticker, interval, df):
-        print(f"📈 {ticker} {interval}: {len(df)} candles, latest=${df['close'].iloc[-1]:.2f}")
+        print(f"{ticker} {interval}: {len(df)} candles, latest=${df['close'].iloc[-1]:.2f}")
 
     hook.on_data_update = on_update
     try:
@@ -384,10 +423,10 @@ async def example_multi_pair():
     hook = CryptoDataHook(tickers=TokoCryptoPairs.MAJOR, intervals=['15m'])
 
     def on_update(ticker, interval, df):
-        print(f"💰 {ticker}: ${df['close'].iloc[-1]:.2f}")
+        print(f"{ticker}: ${df['close'].iloc[-1]:.2f}")
 
     def on_all_ready():
-        print("✅ All pairs loaded!")
+        print("All pairs loaded!")
 
     hook.on_data_update = on_update
     hook.on_all_ready   = on_all_ready
@@ -409,11 +448,11 @@ async def example_full_monitoring():
             latest = df['close'].iloc[-1]
             prev   = df['close'].iloc[-2]
             pct    = (latest - prev) / prev * 100
-            emoji  = "🟢" if pct >= 0 else "🔴"
-            print(f"{emoji} {ticker} [{interval}]: ${latest:.2f} ({pct:+.2f}%)")
+            sign   = "+" if pct >= 0 else ""
+            print(f"{ticker} [{interval}]: ${latest:.2f} ({sign}{pct:.2f}%)")
 
     def on_error(ticker, interval, error):
-        print(f"⚠️  {ticker} {interval}: {error}")
+        print(f"ERROR {ticker} {interval}: {error}")
 
     hook.on_data_update = on_update
     hook.on_error       = on_error
@@ -424,13 +463,13 @@ async def example_full_monitoring():
 
 
 if __name__ == "__main__":
-    import sys
+    import asyncio, sys
     examples = {
         "1": ("Single pair, multiple timeframes", example_single_pair),
         "2": ("Multiple pairs, single timeframe", example_multi_pair),
         "3": ("Full monitoring (multi-pair, multi-timeframe)", example_full_monitoring),
     }
-    print("🚀 Crypto Data Hook\n")
+    print("Crypto Data Hook\n")
     for k, (label, _) in examples.items():
         print(f"  {k}. {label}")
     choice = (input("\nPilih (1-3): ") or "3").strip()
