@@ -25,7 +25,7 @@ logging.basicConfig(
 # ─── Config ───────────────────────────────────────────────────────────────────
 # Folder ini harus sama persis dengan yang di-mount di main.py:
 #   _mount_static("/uploads_images_profile", "uploads_images_profile", "profile")
-UPLOAD_DIR          = "uploads_images_profile"
+UPLOAD_DIR          = "core/uploads_images_profile"
 ALLOWED_EXT         = {"jpg", "jpeg", "png", "webp"}
 MAX_FILE_SIZE_MB    = 5
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024

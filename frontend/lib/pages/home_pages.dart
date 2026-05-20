@@ -583,10 +583,11 @@ class _HomeScreenState extends State<HomeScreen> {
               : _profileImageUrl != null && _profileImageUrl!.isNotEmpty
                   // ✅ Tampilkan foto profile kalau ada
                   ? Image.network(
-                      _profileImageUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => _initialsAvatar(),
-                    )
+                        _profileImageUrl!,
+                        key: ValueKey(_profileImageUrl),  // ← tambah ini
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _initialsAvatar(),
+                      )
                   // Fallback: inisial
                   : _initialsAvatar(),
         ),
